@@ -1173,7 +1173,7 @@ class ExportPage(ctk.CTkFrame):
             title="Save Word Document",
             defaultextension=".docx",
             filetypes=[("Word Documents", "*.docx")],
-            initialfilename=default_name
+            initialfile=default_name
         )
 
         if not file_path:
