@@ -1,392 +1,651 @@
 #!/usr/bin/env python3
 """
-Exam Seating Management Application
-A modern desktop application for managing exam seating arrangements.
+University Exam Seating System
+A modern desktop application for anti-cheating exam seating management.
 
 Features:
-- Import students from Word documents
-- Smart cross-stage seating algorithm
-- Export to formatted Word documents
-- Dark/Light mode theme support
+- Multi-department support
+- Import students from .docx and .xlsx files
+- Zigzag anti-cheating seating algorithm
+- Professional Word document export with visual seating maps
+- Modern dark-themed UI with CustomTkinter
 """
 
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
+from typing import Optional, Callable
 import os
-from typing import Optional
 
 from data_manager import DataManager
-from seating_algorithm import SeatingAlgorithm
+from seating_algorithm import ZigzagSeatingAlgorithm, SeatingResult
 from word_exporter import WordExporter
 
 
-class SidebarFrame(ctk.CTkFrame):
-    """Sidebar navigation frame with theme toggle."""
+# ==================== Theme Configuration ====================
 
-    def __init__(self, master, nav_callback, **kwargs):
-        super().__init__(master, **kwargs)
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("blue")
+
+# Color Scheme
+COLORS = {
+    "primary": "#3B82F6",
+    "primary_hover": "#2563EB",
+    "secondary": "#6B7280",
+    "success": "#10B981",
+    "warning": "#F59E0B",
+    "danger": "#EF4444",
+    "bg_dark": "#1F2937",
+    "bg_card": "#374151",
+    "text": "#F9FAFB",
+    "text_secondary": "#9CA3AF"
+}
+
+
+# ==================== Sidebar Navigation ====================
+
+class Sidebar(ctk.CTkFrame):
+    """Modern sidebar navigation component."""
+
+    def __init__(self, master, nav_callback: Callable, **kwargs):
+        super().__init__(master, width=220, corner_radius=0, **kwargs)
 
         self.nav_callback = nav_callback
+        self.buttons = {}
+        self.current_page = "dashboard"
 
-        # App Logo/Title
+        # Prevent sidebar from shrinking
+        self.grid_propagate(False)
+
+        # App Header
+        self.header_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.header_frame.pack(fill="x", padx=15, pady=(20, 5))
+
         self.logo_label = ctk.CTkLabel(
-            self,
-            text="📋 Exam Seating",
+            self.header_frame,
+            text="🎓",
+            font=ctk.CTkFont(size=36)
+        )
+        self.logo_label.pack()
+
+        self.title_label = ctk.CTkLabel(
+            self.header_frame,
+            text="Exam Seating",
             font=ctk.CTkFont(size=20, weight="bold")
         )
-        self.logo_label.pack(pady=(20, 10))
+        self.title_label.pack()
 
-        self.subtitle = ctk.CTkLabel(
-            self,
+        self.subtitle_label = ctk.CTkLabel(
+            self.header_frame,
             text="Management System",
-            font=ctk.CTkFont(size=12)
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["text_secondary"]
         )
-        self.subtitle.pack(pady=(0, 30))
+        self.subtitle_label.pack()
+
+        # Divider
+        self.divider = ctk.CTkFrame(self, height=2, fg_color=COLORS["secondary"])
+        self.divider.pack(fill="x", padx=15, pady=20)
 
         # Navigation Buttons
-        self.nav_buttons = {}
-
         nav_items = [
-            ("🏠 Home", "home"),
-            ("📥 Import Students", "import"),
-            ("📊 View Data", "view"),
-            ("🪑 Generate Seats", "generate"),
-            ("📄 Export", "export"),
+            ("dashboard", "📊", "Dashboard"),
+            ("departments", "🏛️", "Departments"),
+            ("students", "👥", "Students"),
+            ("generate", "🎲", "Generate Seats"),
+            ("export", "📄", "Export Report"),
         ]
 
-        for text, key in nav_items:
+        for key, icon, text in nav_items:
             btn = ctk.CTkButton(
                 self,
-                text=text,
+                text=f"  {icon}  {text}",
                 font=ctk.CTkFont(size=14),
-                height=40,
-                corner_radius=8,
+                height=45,
+                corner_radius=10,
                 fg_color="transparent",
-                text_color=("gray10", "gray90"),
-                hover_color=("gray70", "gray30"),
+                text_color=COLORS["text"],
+                hover_color=COLORS["bg_card"],
                 anchor="w",
-                command=lambda k=key: self._on_nav_click(k)
+                command=lambda k=key: self._navigate(k)
             )
-            btn.pack(fill="x", padx=10, pady=5)
-            self.nav_buttons[key] = btn
+            btn.pack(fill="x", padx=10, pady=3)
+            self.buttons[key] = btn
 
-        # Highlight home by default
-        self._highlight_button("home")
+        # Set initial highlight
+        self._highlight("dashboard")
 
         # Spacer
-        self.spacer = ctk.CTkLabel(self, text="")
-        self.spacer.pack(expand=True)
+        self.spacer = ctk.CTkFrame(self, fg_color="transparent")
+        self.spacer.pack(fill="both", expand=True)
 
         # Theme Toggle
+        self.theme_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.theme_frame.pack(fill="x", padx=15, pady=10)
+
         self.theme_label = ctk.CTkLabel(
-            self,
-            text="Appearance Mode",
-            font=ctk.CTkFont(size=12)
+            self.theme_frame,
+            text="Theme",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_secondary"]
         )
-        self.theme_label.pack(pady=(10, 5))
+        self.theme_label.pack(anchor="w")
 
-        self.theme_menu = ctk.CTkOptionMenu(
-            self,
-            values=["System", "Light", "Dark"],
-            command=self._change_theme,
-            width=140
+        self.theme_switch = ctk.CTkSwitch(
+            self.theme_frame,
+            text="Dark Mode",
+            command=self._toggle_theme,
+            onvalue="dark",
+            offvalue="light"
         )
-        self.theme_menu.pack(pady=(0, 20))
+        self.theme_switch.pack(anchor="w", pady=5)
+        self.theme_switch.select()
 
-    def _on_nav_click(self, key: str):
-        """Handle navigation button click."""
-        self._highlight_button(key)
+        # Version
+        self.version_label = ctk.CTkLabel(
+            self,
+            text="v2.0.0",
+            font=ctk.CTkFont(size=10),
+            text_color=COLORS["text_secondary"]
+        )
+        self.version_label.pack(pady=(0, 15))
+
+    def _navigate(self, key: str):
+        """Handle navigation click."""
+        self.current_page = key
+        self._highlight(key)
         self.nav_callback(key)
 
-    def _highlight_button(self, key: str):
-        """Highlight the selected navigation button."""
-        for btn_key, btn in self.nav_buttons.items():
+    def _highlight(self, key: str):
+        """Highlight the active navigation button."""
+        for btn_key, btn in self.buttons.items():
             if btn_key == key:
-                btn.configure(fg_color=("gray75", "gray25"))
+                btn.configure(fg_color=COLORS["primary"])
             else:
                 btn.configure(fg_color="transparent")
 
-    def _change_theme(self, mode: str):
-        """Change the application theme."""
-        ctk.set_appearance_mode(mode.lower())
+    def _toggle_theme(self):
+        """Toggle between dark and light theme."""
+        mode = self.theme_switch.get()
+        ctk.set_appearance_mode(mode)
 
 
-class HomeFrame(ctk.CTkFrame):
-    """Home page with overview and department settings."""
+# ==================== Dashboard Page ====================
+
+class DashboardPage(ctk.CTkFrame):
+    """Main dashboard with overview statistics."""
 
     def __init__(self, master, data_manager: DataManager, **kwargs):
-        super().__init__(master, **kwargs)
+        super().__init__(master, fg_color="transparent", **kwargs)
 
         self.data_manager = data_manager
 
-        # Title
+        # Page Title
         self.title = ctk.CTkLabel(
             self,
-            text="Welcome to Exam Seating Manager",
-            font=ctk.CTkFont(size=24, weight="bold")
+            text="Dashboard",
+            font=ctk.CTkFont(size=28, weight="bold")
         )
-        self.title.pack(pady=(40, 10))
+        self.title.pack(anchor="w", pady=(0, 5))
 
-        self.description = ctk.CTkLabel(
+        self.subtitle = ctk.CTkLabel(
             self,
-            text="Organize exam seating with smart cross-stage pairing",
+            text="Overview of your exam seating system",
             font=ctk.CTkFont(size=14),
-            text_color="gray"
+            text_color=COLORS["text_secondary"]
         )
-        self.description.pack(pady=(0, 40))
+        self.subtitle.pack(anchor="w", pady=(0, 20))
 
-        # Department Name Entry
-        self.dept_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.dept_frame.pack(pady=20, padx=40, fill="x")
+        # University Name Card
+        self.uni_card = ctk.CTkFrame(self, corner_radius=15)
+        self.uni_card.pack(fill="x", pady=(0, 20))
 
-        self.dept_label = ctk.CTkLabel(
-            self.dept_frame,
-            text="Department Name:",
-            font=ctk.CTkFont(size=14, weight="bold")
+        self.uni_label = ctk.CTkLabel(
+            self.uni_card,
+            text="University Name",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_secondary"]
         )
-        self.dept_label.pack(anchor="w")
+        self.uni_label.pack(anchor="w", padx=20, pady=(15, 5))
 
-        self.dept_entry = ctk.CTkEntry(
-            self.dept_frame,
-            placeholder_text="e.g., Cyber Security",
-            height=40,
+        self.uni_entry = ctk.CTkEntry(
+            self.uni_card,
+            placeholder_text="Enter university name...",
+            height=45,
             font=ctk.CTkFont(size=14)
         )
-        self.dept_entry.pack(fill="x", pady=(5, 0))
-        self.dept_entry.bind("<KeyRelease>", self._on_dept_change)
+        self.uni_entry.pack(fill="x", padx=20, pady=(0, 15))
+        self.uni_entry.insert(0, "University Name")
+        self.uni_entry.bind("<KeyRelease>", self._on_uni_change)
 
-        # Quick Stats
-        self.stats_frame = ctk.CTkFrame(self)
-        self.stats_frame.pack(pady=30, padx=40, fill="x")
+        # Stats Grid
+        self.stats_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.stats_frame.pack(fill="x", pady=10)
 
-        self.stats_title = ctk.CTkLabel(
-            self.stats_frame,
-            text="📊 Current Data Summary",
-            font=ctk.CTkFont(size=16, weight="bold")
-        )
-        self.stats_title.pack(pady=(15, 10))
+        self.stats_frame.grid_columnconfigure((0, 1, 2), weight=1)
 
-        self.stats_label = ctk.CTkLabel(
-            self.stats_frame,
-            text="No students imported yet.\nUse the Import section to add students.",
-            font=ctk.CTkFont(size=13),
-            justify="center"
-        )
-        self.stats_label.pack(pady=(0, 15))
-
-        # Instructions
-        self.instructions_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.instructions_frame.pack(pady=20, padx=40, fill="x")
-
-        instructions = [
-            "1️⃣  Enter your department name above",
-            "2️⃣  Import students from .docx files for each stage",
-            "3️⃣  Generate smart seating arrangements",
-            "4️⃣  Export the results to a Word document"
+        self.stat_cards = {}
+        stats_config = [
+            ("departments", "🏛️", "Departments", "0"),
+            ("students", "👥", "Total Students", "0"),
+            ("stages", "📚", "Active Stages", "0")
         ]
 
-        self.inst_title = ctk.CTkLabel(
-            self.instructions_frame,
-            text="Quick Start Guide:",
-            font=ctk.CTkFont(size=14, weight="bold")
+        for i, (key, icon, label, value) in enumerate(stats_config):
+            card = self._create_stat_card(self.stats_frame, icon, label, value)
+            card.grid(row=0, column=i, padx=5, pady=5, sticky="nsew")
+            self.stat_cards[key] = card
+
+        # Quick Actions
+        self.actions_label = ctk.CTkLabel(
+            self,
+            text="Quick Actions",
+            font=ctk.CTkFont(size=16, weight="bold")
         )
-        self.inst_title.pack(anchor="w", pady=(0, 10))
+        self.actions_label.pack(anchor="w", pady=(30, 15))
 
-        for inst in instructions:
-            lbl = ctk.CTkLabel(
-                self.instructions_frame,
-                text=inst,
+        self.actions_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.actions_frame.pack(fill="x")
+
+        actions = [
+            ("➕ Add Department", COLORS["primary"], self._quick_add_dept),
+            ("📥 Import Students", COLORS["success"], self._quick_import),
+            ("🎲 Generate Seating", COLORS["warning"], self._quick_generate)
+        ]
+
+        for text, color, cmd in actions:
+            btn = ctk.CTkButton(
+                self.actions_frame,
+                text=text,
                 font=ctk.CTkFont(size=13),
-                anchor="w"
+                height=40,
+                fg_color=color,
+                hover_color=self._darken_color(color),
+                command=cmd
             )
-            lbl.pack(anchor="w", pady=2)
+            btn.pack(side="left", padx=(0, 10))
 
-    def _on_dept_change(self, event):
-        """Update department name in data manager."""
-        self.data_manager.department_name = self.dept_entry.get()
+        # Recent Activity
+        self.activity_label = ctk.CTkLabel(
+            self,
+            text="System Status",
+            font=ctk.CTkFont(size=16, weight="bold")
+        )
+        self.activity_label.pack(anchor="w", pady=(30, 15))
+
+        self.activity_card = ctk.CTkFrame(self, corner_radius=15)
+        self.activity_card.pack(fill="both", expand=True)
+
+        self.activity_text = ctk.CTkTextbox(
+            self.activity_card,
+            font=ctk.CTkFont(size=12),
+            fg_color="transparent"
+        )
+        self.activity_text.pack(fill="both", expand=True, padx=15, pady=15)
+        self.activity_text.insert("1.0", "Welcome to Exam Seating Management System!\n\n")
+        self.activity_text.insert("end", "• Create departments for your university\n")
+        self.activity_text.insert("end", "• Import student lists from Word or Excel files\n")
+        self.activity_text.insert("end", "• Generate anti-cheating seating arrangements\n")
+        self.activity_text.insert("end", "• Export professional reports with visual maps\n")
+        self.activity_text.configure(state="disabled")
+
+    def _create_stat_card(self, parent, icon: str, label: str, value: str) -> ctk.CTkFrame:
+        """Create a statistics card."""
+        card = ctk.CTkFrame(parent, corner_radius=15, height=120)
+        card.pack_propagate(False)
+
+        icon_label = ctk.CTkLabel(card, text=icon, font=ctk.CTkFont(size=30))
+        icon_label.pack(pady=(15, 5))
+
+        value_label = ctk.CTkLabel(
+            card,
+            text=value,
+            font=ctk.CTkFont(size=24, weight="bold")
+        )
+        value_label.pack()
+
+        text_label = ctk.CTkLabel(
+            card,
+            text=label,
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_secondary"]
+        )
+        text_label.pack()
+
+        # Store reference to value label for updates
+        card.value_label = value_label
+
+        return card
+
+    def _darken_color(self, hex_color: str) -> str:
+        """Darken a hex color for hover effect."""
+        hex_color = hex_color.lstrip('#')
+        rgb = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+        darkened = tuple(max(0, int(c * 0.8)) for c in rgb)
+        return f"#{darkened[0]:02x}{darkened[1]:02x}{darkened[2]:02x}"
+
+    def _on_uni_change(self, event):
+        """Update university name."""
+        self.data_manager.university_name = self.uni_entry.get()
+
+    def _quick_add_dept(self):
+        """Quick action to add department."""
+        # This will be connected to navigation callback
+        pass
+
+    def _quick_import(self):
+        """Quick action to import students."""
+        pass
+
+    def _quick_generate(self):
+        """Quick action to generate seating."""
+        pass
 
     def refresh(self):
-        """Refresh the stats display."""
-        # Update department entry if it was set elsewhere
-        current_dept = self.data_manager.department_name
-        if self.dept_entry.get() != current_dept:
-            self.dept_entry.delete(0, "end")
-            if current_dept:
-                self.dept_entry.insert(0, current_dept)
+        """Refresh dashboard statistics."""
+        # Update university name
+        if self.uni_entry.get() != self.data_manager.university_name:
+            self.uni_entry.delete(0, "end")
+            self.uni_entry.insert(0, self.data_manager.university_name)
 
         # Update stats
-        total = self.data_manager.get_total_students()
-        if total > 0:
-            summary = self.data_manager.get_summary()
-            self.stats_label.configure(text=summary)
-        else:
-            self.stats_label.configure(
-                text="No students imported yet.\nUse the Import section to add students."
-            )
+        summary = self.data_manager.get_global_summary()
+
+        dept_count = summary.get("total_departments", 0)
+        self.stat_cards["departments"].value_label.configure(text=str(dept_count))
+
+        total_students = sum(
+            d.get("total_students", 0)
+            for d in summary.get("departments", [])
+        )
+        self.stat_cards["students"].value_label.configure(text=str(total_students))
+
+        active_stages = sum(
+            sum(1 for v in d.get("stages", {}).values() if v > 0)
+            for d in summary.get("departments", [])
+        )
+        self.stat_cards["stages"].value_label.configure(text=str(active_stages))
 
 
-class ImportFrame(ctk.CTkFrame):
-    """Frame for importing students from Word documents."""
+# ==================== Departments Page ====================
+
+class DepartmentsPage(ctk.CTkFrame):
+    """Department management page."""
 
     def __init__(self, master, data_manager: DataManager, **kwargs):
-        super().__init__(master, **kwargs)
+        super().__init__(master, fg_color="transparent", **kwargs)
 
         self.data_manager = data_manager
 
-        # Title
+        # Page Title
         self.title = ctk.CTkLabel(
             self,
-            text="📥 Import Students",
-            font=ctk.CTkFont(size=24, weight="bold")
+            text="Departments",
+            font=ctk.CTkFont(size=28, weight="bold")
         )
-        self.title.pack(pady=(40, 10))
+        self.title.pack(anchor="w", pady=(0, 5))
 
-        self.description = ctk.CTkLabel(
+        self.subtitle = ctk.CTkLabel(
             self,
-            text="Import student names from Word documents (.docx)",
+            text="Manage university departments",
             font=ctk.CTkFont(size=14),
-            text_color="gray"
+            text_color=COLORS["text_secondary"]
         )
-        self.description.pack(pady=(0, 30))
+        self.subtitle.pack(anchor="w", pady=(0, 20))
 
-        # Stage Selection
-        self.stage_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.stage_frame.pack(pady=10, padx=40, fill="x")
+        # Add Department Card
+        self.add_card = ctk.CTkFrame(self, corner_radius=15)
+        self.add_card.pack(fill="x", pady=(0, 20))
 
-        self.stage_label = ctk.CTkLabel(
-            self.stage_frame,
-            text="Select Academic Year:",
+        self.add_label = ctk.CTkLabel(
+            self.add_card,
+            text="Create New Department",
             font=ctk.CTkFont(size=14, weight="bold")
         )
-        self.stage_label.pack(anchor="w")
+        self.add_label.pack(anchor="w", padx=20, pady=(15, 10))
+
+        self.add_frame = ctk.CTkFrame(self.add_card, fg_color="transparent")
+        self.add_frame.pack(fill="x", padx=20, pady=(0, 15))
+
+        self.dept_entry = ctk.CTkEntry(
+            self.add_frame,
+            placeholder_text="Enter department name (e.g., Computer Science)",
+            height=45,
+            font=ctk.CTkFont(size=14)
+        )
+        self.dept_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
+
+        self.add_btn = ctk.CTkButton(
+            self.add_frame,
+            text="➕ Create",
+            font=ctk.CTkFont(size=14),
+            height=45,
+            width=120,
+            fg_color=COLORS["success"],
+            hover_color="#059669",
+            command=self._create_department
+        )
+        self.add_btn.pack(side="right")
+
+        # Departments List
+        self.list_label = ctk.CTkLabel(
+            self,
+            text="Existing Departments",
+            font=ctk.CTkFont(size=16, weight="bold")
+        )
+        self.list_label.pack(anchor="w", pady=(10, 15))
+
+        self.list_frame = ctk.CTkScrollableFrame(self, corner_radius=15)
+        self.list_frame.pack(fill="both", expand=True)
+
+        self.dept_widgets = []
+
+    def _create_department(self):
+        """Create a new department."""
+        name = self.dept_entry.get().strip()
+        if not name:
+            messagebox.showwarning("Warning", "Please enter a department name.")
+            return
+
+        success, message = self.data_manager.create_department(name)
+        if success:
+            self.dept_entry.delete(0, "end")
+            self.refresh()
+            messagebox.showinfo("Success", message)
+        else:
+            messagebox.showerror("Error", message)
+
+    def _delete_department(self, name: str):
+        """Delete a department."""
+        if messagebox.askyesno("Confirm", f"Delete department '{name}'?\nThis will remove all student data."):
+            success, message = self.data_manager.delete_department(name)
+            if success:
+                self.refresh()
+                messagebox.showinfo("Success", message)
+            else:
+                messagebox.showerror("Error", message)
+
+    def _create_dept_card(self, parent, name: str, stats: dict) -> ctk.CTkFrame:
+        """Create a department card widget."""
+        card = ctk.CTkFrame(parent, corner_radius=10, height=80)
+
+        # Department name
+        name_label = ctk.CTkLabel(
+            card,
+            text=f"🏛️ {name}",
+            font=ctk.CTkFont(size=16, weight="bold")
+        )
+        name_label.pack(anchor="w", padx=15, pady=(12, 5))
+
+        # Stats
+        stage_info = " | ".join([
+            f"{stage}: {count}"
+            for stage, count in stats.get("stages", {}).items()
+        ])
+        total = stats.get("total_students", 0)
+
+        stats_label = ctk.CTkLabel(
+            card,
+            text=f"Total: {total} students  •  {stage_info}",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["text_secondary"]
+        )
+        stats_label.pack(anchor="w", padx=15)
+
+        # Delete button
+        del_btn = ctk.CTkButton(
+            card,
+            text="🗑️",
+            width=35,
+            height=35,
+            fg_color=COLORS["danger"],
+            hover_color="#DC2626",
+            command=lambda: self._delete_department(name)
+        )
+        del_btn.place(relx=0.95, rely=0.5, anchor="e")
+
+        return card
+
+    def refresh(self):
+        """Refresh the departments list."""
+        # Clear existing widgets
+        for widget in self.dept_widgets:
+            widget.destroy()
+        self.dept_widgets.clear()
+
+        # Create new cards
+        departments = self.data_manager.departments
+        if not departments:
+            empty_label = ctk.CTkLabel(
+                self.list_frame,
+                text="No departments created yet.\nCreate your first department above.",
+                font=ctk.CTkFont(size=14),
+                text_color=COLORS["text_secondary"]
+            )
+            empty_label.pack(pady=40)
+            self.dept_widgets.append(empty_label)
+        else:
+            for name in departments:
+                stats = self.data_manager.get_department_summary(name)
+                card = self._create_dept_card(self.list_frame, name, stats)
+                card.pack(fill="x", padx=5, pady=5)
+                self.dept_widgets.append(card)
+
+
+# ==================== Students Page ====================
+
+class StudentsPage(ctk.CTkFrame):
+    """Student management and import page."""
+
+    def __init__(self, master, data_manager: DataManager, **kwargs):
+        super().__init__(master, fg_color="transparent", **kwargs)
+
+        self.data_manager = data_manager
+
+        # Page Title
+        self.title = ctk.CTkLabel(
+            self,
+            text="Students",
+            font=ctk.CTkFont(size=28, weight="bold")
+        )
+        self.title.pack(anchor="w", pady=(0, 5))
+
+        self.subtitle = ctk.CTkLabel(
+            self,
+            text="Import and manage student lists",
+            font=ctk.CTkFont(size=14),
+            text_color=COLORS["text_secondary"]
+        )
+        self.subtitle.pack(anchor="w", pady=(0, 20))
+
+        # Import Section
+        self.import_card = ctk.CTkFrame(self, corner_radius=15)
+        self.import_card.pack(fill="x", pady=(0, 20))
+
+        self.import_title = ctk.CTkLabel(
+            self.import_card,
+            text="Import Students",
+            font=ctk.CTkFont(size=14, weight="bold")
+        )
+        self.import_title.pack(anchor="w", padx=20, pady=(15, 10))
+
+        # Department Selection
+        self.select_frame = ctk.CTkFrame(self.import_card, fg_color="transparent")
+        self.select_frame.pack(fill="x", padx=20, pady=5)
+
+        self.dept_label = ctk.CTkLabel(
+            self.select_frame,
+            text="Department:",
+            font=ctk.CTkFont(size=12)
+        )
+        self.dept_label.pack(side="left", padx=(0, 10))
+
+        self.dept_var = ctk.StringVar(value="Select Department")
+        self.dept_dropdown = ctk.CTkOptionMenu(
+            self.select_frame,
+            variable=self.dept_var,
+            values=["Select Department"],
+            width=200,
+            height=35
+        )
+        self.dept_dropdown.pack(side="left", padx=(0, 20))
+
+        self.stage_label = ctk.CTkLabel(
+            self.select_frame,
+            text="Stage:",
+            font=ctk.CTkFont(size=12)
+        )
+        self.stage_label.pack(side="left", padx=(0, 10))
 
         self.stage_var = ctk.StringVar(value="1st Stage")
         self.stage_dropdown = ctk.CTkOptionMenu(
-            self.stage_frame,
+            self.select_frame,
             variable=self.stage_var,
-            values=self.data_manager.stages,
-            width=200,
+            values=["1st Stage", "2nd Stage", "3rd Stage"],
+            width=150,
+            height=35
+        )
+        self.stage_dropdown.pack(side="left")
+
+        # Import Buttons
+        self.btn_frame = ctk.CTkFrame(self.import_card, fg_color="transparent")
+        self.btn_frame.pack(fill="x", padx=20, pady=(10, 15))
+
+        self.import_docx_btn = ctk.CTkButton(
+            self.btn_frame,
+            text="📄 Import from Word (.docx)",
+            font=ctk.CTkFont(size=13),
             height=40,
-            font=ctk.CTkFont(size=14)
+            fg_color=COLORS["primary"],
+            command=lambda: self._import_file("docx")
         )
-        self.stage_dropdown.pack(anchor="w", pady=(5, 0))
+        self.import_docx_btn.pack(side="left", padx=(0, 10))
 
-        # Import Button
-        self.import_btn = ctk.CTkButton(
+        self.import_xlsx_btn = ctk.CTkButton(
+            self.btn_frame,
+            text="📊 Import from Excel (.xlsx)",
+            font=ctk.CTkFont(size=13),
+            height=40,
+            fg_color=COLORS["success"],
+            command=lambda: self._import_file("xlsx")
+        )
+        self.import_xlsx_btn.pack(side="left")
+
+        # Student List View
+        self.list_label = ctk.CTkLabel(
             self,
-            text="📂 Select & Import .docx File",
-            font=ctk.CTkFont(size=14, weight="bold"),
-            height=45,
-            width=250,
-            command=self._import_file
-        )
-        self.import_btn.pack(pady=30)
-
-        # Status/Result
-        self.status_frame = ctk.CTkFrame(self)
-        self.status_frame.pack(pady=20, padx=40, fill="both", expand=True)
-
-        self.status_title = ctk.CTkLabel(
-            self.status_frame,
-            text="Import Status",
+            text="Student Lists by Stage",
             font=ctk.CTkFont(size=16, weight="bold")
         )
-        self.status_title.pack(pady=(15, 10))
+        self.list_label.pack(anchor="w", pady=(10, 15))
 
-        self.status_text = ctk.CTkTextbox(
-            self.status_frame,
-            height=200,
-            font=ctk.CTkFont(size=12)
-        )
-        self.status_text.pack(fill="both", expand=True, padx=15, pady=(0, 15))
-        self.status_text.insert("1.0", "Ready to import students...\n")
-        self.status_text.configure(state="disabled")
-
-        # Clear Stage Button
-        self.clear_btn = ctk.CTkButton(
-            self,
-            text="🗑️ Clear Selected Stage",
-            font=ctk.CTkFont(size=12),
-            fg_color="transparent",
-            border_width=1,
-            text_color=("gray10", "gray90"),
-            hover_color=("gray70", "gray30"),
-            height=35,
-            command=self._clear_stage
-        )
-        self.clear_btn.pack(pady=(0, 20))
-
-    def _import_file(self):
-        """Handle file import."""
-        file_path = filedialog.askopenfilename(
-            title="Select Word Document",
-            filetypes=[("Word Documents", "*.docx"), ("All Files", "*.*")]
-        )
-
-        if not file_path:
-            return
-
-        stage = self.stage_var.get()
-        success, message, count = self.data_manager.import_from_docx(file_path, stage)
-
-        self._update_status(f"[{stage}] {message}")
-
-        if success:
-            self._update_status(f"Current {stage} students: {self.data_manager.get_student_count(stage)}")
-            messagebox.showinfo("Import Successful", message)
-        else:
-            messagebox.showerror("Import Failed", message)
-
-    def _clear_stage(self):
-        """Clear all students from the selected stage."""
-        stage = self.stage_var.get()
-        count = self.data_manager.get_student_count(stage)
-
-        if count == 0:
-            messagebox.showinfo("Info", f"No students in {stage} to clear.")
-            return
-
-        if messagebox.askyesno("Confirm", f"Clear all {count} students from {stage}?"):
-            self.data_manager.clear_stage(stage)
-            self._update_status(f"Cleared all students from {stage}")
-            messagebox.showinfo("Success", f"Cleared {count} students from {stage}")
-
-    def _update_status(self, message: str):
-        """Update the status textbox."""
-        self.status_text.configure(state="normal")
-        self.status_text.insert("end", f"\n{message}")
-        self.status_text.see("end")
-        self.status_text.configure(state="disabled")
-
-    def refresh(self):
-        """Refresh the frame."""
-        pass
-
-
-class ViewDataFrame(ctk.CTkFrame):
-    """Frame for viewing imported student data."""
-
-    def __init__(self, master, data_manager: DataManager, **kwargs):
-        super().__init__(master, **kwargs)
-
-        self.data_manager = data_manager
-
-        # Title
-        self.title = ctk.CTkLabel(
-            self,
-            text="📊 View Student Data",
-            font=ctk.CTkFont(size=24, weight="bold")
-        )
-        self.title.pack(pady=(40, 10))
-
-        # Tab view for stages
-        self.tabview = ctk.CTkTabview(self, width=500, height=400)
-        self.tabview.pack(pady=20, padx=40, fill="both", expand=True)
+        # Tabview for stages
+        self.tabview = ctk.CTkTabview(self, corner_radius=15)
+        self.tabview.pack(fill="both", expand=True)
 
         self.stage_tabs = {}
         self.stage_textboxes = {}
 
-        for stage in self.data_manager.stages:
+        for stage in ["1st Stage", "2nd Stage", "3rd Stage"]:
             tab = self.tabview.add(stage)
             self.stage_tabs[stage] = tab
 
@@ -394,347 +653,538 @@ class ViewDataFrame(ctk.CTkFrame):
             textbox.pack(fill="both", expand=True, padx=10, pady=10)
             self.stage_textboxes[stage] = textbox
 
-        # Summary Label
-        self.summary_label = ctk.CTkLabel(
+        # Clear button
+        self.clear_btn = ctk.CTkButton(
             self,
-            text="",
-            font=ctk.CTkFont(size=14)
+            text="🗑️ Clear Selected Stage",
+            font=ctk.CTkFont(size=12),
+            height=35,
+            fg_color=COLORS["danger"],
+            hover_color="#DC2626",
+            command=self._clear_stage
         )
-        self.summary_label.pack(pady=10)
+        self.clear_btn.pack(anchor="e", pady=(10, 0))
 
-        # Refresh Button
-        self.refresh_btn = ctk.CTkButton(
-            self,
-            text="🔄 Refresh Data",
-            command=self.refresh,
-            height=35
+    def _import_file(self, file_type: str):
+        """Import students from file."""
+        dept = self.dept_var.get()
+        if dept == "Select Department":
+            messagebox.showwarning("Warning", "Please select a department first.")
+            return
+
+        stage = self.stage_var.get()
+
+        if file_type == "docx":
+            filetypes = [("Word Documents", "*.docx")]
+        else:
+            filetypes = [("Excel Files", "*.xlsx *.xls")]
+
+        file_path = filedialog.askopenfilename(
+            title=f"Select {file_type.upper()} File",
+            filetypes=filetypes
         )
-        self.refresh_btn.pack(pady=(0, 20))
+
+        if not file_path:
+            return
+
+        success, message, count = self.data_manager.import_from_file(file_path, dept, stage)
+
+        if success:
+            self.refresh()
+            messagebox.showinfo("Success", message)
+        else:
+            messagebox.showerror("Import Error", message)
+
+    def _clear_stage(self):
+        """Clear students from selected stage."""
+        dept = self.dept_var.get()
+        if dept == "Select Department":
+            messagebox.showwarning("Warning", "Please select a department.")
+            return
+
+        stage = self.stage_var.get()
+        count = self.data_manager.get_student_count(dept, stage)
+
+        if count == 0:
+            messagebox.showinfo("Info", f"No students in {stage} to clear.")
+            return
+
+        if messagebox.askyesno("Confirm", f"Clear all {count} students from {stage}?"):
+            self.data_manager.clear_stage(dept, stage)
+            self.refresh()
+            messagebox.showinfo("Success", f"Cleared {count} students from {stage}.")
 
     def refresh(self):
-        """Refresh the displayed data."""
-        total = 0
+        """Refresh the students view."""
+        # Update department dropdown
+        departments = self.data_manager.departments
+        if departments:
+            self.dept_dropdown.configure(values=departments)
+            if self.dept_var.get() == "Select Department":
+                self.dept_var.set(departments[0])
+        else:
+            self.dept_dropdown.configure(values=["Select Department"])
+            self.dept_var.set("Select Department")
 
-        for stage in self.data_manager.stages:
-            students = self.data_manager.get_students(stage)
-            textbox = self.stage_textboxes[stage]
+        # Update student lists
+        dept = self.dept_var.get()
+        if dept != "Select Department":
+            for stage, textbox in self.stage_textboxes.items():
+                students = self.data_manager.get_students(dept, stage)
 
-            textbox.configure(state="normal")
-            textbox.delete("1.0", "end")
+                textbox.configure(state="normal")
+                textbox.delete("1.0", "end")
 
-            if students:
-                for i, student in enumerate(students, 1):
-                    textbox.insert("end", f"{i}. {student}\n")
-                total += len(students)
-            else:
-                textbox.insert("1.0", "No students imported for this stage.")
+                if students:
+                    for i, student in enumerate(students, 1):
+                        textbox.insert("end", f"{i}. {student}\n")
+                else:
+                    textbox.insert("1.0", "No students imported for this stage.")
 
-            textbox.configure(state="disabled")
-
-        self.summary_label.configure(
-            text=f"Total Students: {total} | "
-            f"1st: {self.data_manager.get_student_count('1st Stage')} | "
-            f"2nd: {self.data_manager.get_student_count('2nd Stage')} | "
-            f"3rd: {self.data_manager.get_student_count('3rd Stage')}"
-        )
+                textbox.configure(state="disabled")
 
 
-class GenerateFrame(ctk.CTkFrame):
-    """Frame for generating seating arrangements."""
+# ==================== Generate Seating Page ====================
 
-    def __init__(self, master, data_manager: DataManager, algorithm: SeatingAlgorithm, **kwargs):
-        super().__init__(master, **kwargs)
+class GeneratePage(ctk.CTkFrame):
+    """Seating generation page."""
+
+    def __init__(self, master, data_manager: DataManager, algorithm: ZigzagSeatingAlgorithm, **kwargs):
+        super().__init__(master, fg_color="transparent", **kwargs)
 
         self.data_manager = data_manager
         self.algorithm = algorithm
+        self.current_result: Optional[SeatingResult] = None
 
-        # Title
+        # Page Title
         self.title = ctk.CTkLabel(
             self,
-            text="🪑 Generate Seating",
-            font=ctk.CTkFont(size=24, weight="bold")
+            text="Generate Seating",
+            font=ctk.CTkFont(size=28, weight="bold")
         )
-        self.title.pack(pady=(40, 10))
+        self.title.pack(anchor="w", pady=(0, 5))
 
-        self.description = ctk.CTkLabel(
+        self.subtitle = ctk.CTkLabel(
             self,
-            text="Generate smart seating arrangements with cross-stage pairing",
+            text="Create anti-cheating seating arrangements",
             font=ctk.CTkFont(size=14),
-            text_color="gray"
+            text_color=COLORS["text_secondary"]
         )
-        self.description.pack(pady=(0, 20))
+        self.subtitle.pack(anchor="w", pady=(0, 20))
 
-        # Info Frame
-        self.info_frame = ctk.CTkFrame(self)
-        self.info_frame.pack(pady=10, padx=40, fill="x")
+        # Algorithm Info Card
+        self.info_card = ctk.CTkFrame(self, corner_radius=15)
+        self.info_card.pack(fill="x", pady=(0, 20))
 
+        self.info_title = ctk.CTkLabel(
+            self.info_card,
+            text="🛡️ Anti-Cheating Algorithm",
+            font=ctk.CTkFont(size=14, weight="bold")
+        )
+        self.info_title.pack(anchor="w", padx=20, pady=(15, 10))
+
+        info_text = (
+            "• Students from DIFFERENT stages are paired at each desk\n"
+            "• Students within each stage are RANDOMIZED\n"
+            "• Desks arranged in ZIGZAG pattern across 3 columns\n"
+            "• Handles unbalanced stage counts gracefully"
+        )
         self.info_label = ctk.CTkLabel(
-            self.info_frame,
-            text="ℹ️ Algorithm Rules:\n"
-                 "• Students are paired from DIFFERENT stages\n"
-                 "• Students within each stage are randomized\n"
-                 "• Desks are organized into 3 columns (Left, Middle, Right)",
+            self.info_card,
+            text=info_text,
             font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_secondary"],
             justify="left"
         )
-        self.info_label.pack(pady=15, padx=15)
+        self.info_label.pack(anchor="w", padx=20, pady=(0, 15))
 
-        # Generate Button
-        self.generate_btn = ctk.CTkButton(
-            self,
-            text="🎲 Generate Seating Arrangement",
-            font=ctk.CTkFont(size=16, weight="bold"),
-            height=50,
-            width=300,
-            command=self._generate_seating
+        # Department Selection
+        self.select_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.select_frame.pack(fill="x", pady=(0, 15))
+
+        self.dept_label = ctk.CTkLabel(
+            self.select_frame,
+            text="Select Department:",
+            font=ctk.CTkFont(size=14, weight="bold")
         )
-        self.generate_btn.pack(pady=30)
+        self.dept_label.pack(side="left", padx=(0, 15))
 
-        # Results Frame
-        self.results_frame = ctk.CTkFrame(self)
-        self.results_frame.pack(pady=10, padx=40, fill="both", expand=True)
+        self.dept_var = ctk.StringVar(value="Select Department")
+        self.dept_dropdown = ctk.CTkOptionMenu(
+            self.select_frame,
+            variable=self.dept_var,
+            values=["Select Department"],
+            width=250,
+            height=40
+        )
+        self.dept_dropdown.pack(side="left", padx=(0, 20))
+
+        self.generate_btn = ctk.CTkButton(
+            self.select_frame,
+            text="🎲 Generate Seating",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            height=40,
+            width=180,
+            fg_color=COLORS["warning"],
+            hover_color="#D97706",
+            command=self._generate
+        )
+        self.generate_btn.pack(side="left")
+
+        # Results Area
+        self.results_card = ctk.CTkFrame(self, corner_radius=15)
+        self.results_card.pack(fill="both", expand=True)
 
         self.results_title = ctk.CTkLabel(
-            self.results_frame,
-            text="Generated Seating",
-            font=ctk.CTkFont(size=16, weight="bold")
+            self.results_card,
+            text="Generated Seating Arrangement",
+            font=ctk.CTkFont(size=14, weight="bold")
         )
-        self.results_title.pack(pady=(15, 10))
+        self.results_title.pack(anchor="w", padx=20, pady=(15, 10))
 
         self.results_text = ctk.CTkTextbox(
-            self.results_frame,
+            self.results_card,
             font=ctk.CTkFont(size=11, family="Courier")
         )
-        self.results_text.pack(fill="both", expand=True, padx=15, pady=(0, 15))
-        self.results_text.insert("1.0", "Click 'Generate' to create seating arrangement...")
+        self.results_text.pack(fill="both", expand=True, padx=20, pady=(0, 15))
+        self.results_text.insert("1.0", "Select a department and click 'Generate Seating' to begin...")
         self.results_text.configure(state="disabled")
 
-        # Stats Label
+        # Stats bar
         self.stats_label = ctk.CTkLabel(
             self,
             text="",
-            font=ctk.CTkFont(size=12)
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_secondary"]
         )
-        self.stats_label.pack(pady=(0, 20))
+        self.stats_label.pack(anchor="w", pady=(10, 0))
 
-    def _generate_seating(self):
-        """Generate the seating arrangement."""
-        # Validate data
-        is_valid, message = self.data_manager.validate_for_seating()
+    def _generate(self):
+        """Generate seating arrangement."""
+        dept_name = self.dept_var.get()
+        if dept_name == "Select Department":
+            messagebox.showwarning("Warning", "Please select a department.")
+            return
+
+        # Validate
+        is_valid, message = self.data_manager.validate_for_seating(dept_name)
         if not is_valid:
             messagebox.showerror("Validation Error", message)
             return
 
-        # Generate seating
-        student_pools = self.data_manager.get_all_students()
-        success, message = self.algorithm.generate_seating(student_pools)
+        # Get student data
+        dept = self.data_manager.get_department(dept_name)
+        if not dept:
+            messagebox.showerror("Error", "Department not found.")
+            return
+
+        student_pools = dept.get_all_students()
+
+        # Generate
+        success, message, result = self.algorithm.generate(student_pools)
 
         if not success:
             messagebox.showerror("Generation Error", message)
             return
 
-        # Display results
-        self._display_results()
+        self.current_result = result
+        self._display_results(result)
 
-        # Show stats
-        stats = self.algorithm.get_statistics()
-        self.stats_label.configure(
-            text=f"✅ {stats['total_desks']} desks | "
-            f"{stats['total_students']} students | "
-            f"{stats['cross_stage_pairs']} cross-stage pairs"
-        )
-
-        if stats.get('same_stage_pairs', 0) > 0:
-            messagebox.showwarning(
-                "Warning",
-                f"{stats['same_stage_pairs']} desk(s) have students from the same stage "
-                "due to unbalanced numbers."
-            )
+        # Show warnings if any
+        if result.warnings:
+            messagebox.showwarning("Warning", "\n".join(result.warnings))
         else:
             messagebox.showinfo("Success", message)
 
-    def _display_results(self):
-        """Display the generated seating arrangement."""
+    def _display_results(self, result: SeatingResult):
+        """Display the generated seating."""
         self.results_text.configure(state="normal")
         self.results_text.delete("1.0", "end")
 
-        assignments = self.algorithm.assignments
-
         # Header
-        header = f"{'Desk':<6} {'Column':<8} {'Student A':<25} {'Stage A':<12} {'Student B':<25} {'Stage B':<12}\n"
+        header = f"{'Desk':<6} {'Column':<8} {'Row':<5} {'Student A':<28} {'Student B':<28} {'Status':<12}\n"
         self.results_text.insert("end", header)
-        self.results_text.insert("end", "=" * 95 + "\n")
+        self.results_text.insert("end", "=" * 100 + "\n")
 
-        # Data rows
-        for a in assignments:
-            student_b = a.student_b if a.student_b else "-"
-            stage_b = a.student_b_stage if a.student_b_stage else "-"
+        # Data
+        for desk in result.desks:
+            name_a = desk.student_a.name if desk.student_a else "-"
+            stage_a = f"({desk.student_a.stage})" if desk.student_a else ""
+            student_a = f"{name_a[:20]} {stage_a}"
 
-            row = f"{a.desk_number:<6} {a.column:<8} {a.student_a:<25} {a.student_a_stage:<12} {student_b:<25} {stage_b:<12}\n"
+            name_b = desk.student_b.name if desk.student_b else "-"
+            stage_b = f"({desk.student_b.stage})" if desk.student_b else ""
+            student_b = f"{name_b[:20]} {stage_b}"
+
+            status = "✓ Cross" if desk.is_cross_stage else ("⚠ Same" if desk.is_full else "Single")
+
+            row = f"{desk.number:<6} {desk.column.value:<8} {desk.row:<5} {student_a:<28} {student_b:<28} {status:<12}\n"
             self.results_text.insert("end", row)
 
         self.results_text.configure(state="disabled")
 
+        # Update stats
+        stats = result.stats
+        self.stats_label.configure(
+            text=f"✅ {stats['total_desks']} desks | "
+            f"{stats['total_students']} students | "
+            f"{stats['cross_stage_pairs']} cross-stage | "
+            f"{stats['same_stage_pairs']} same-stage"
+        )
+
     def refresh(self):
-        """Refresh the frame."""
-        pass
+        """Refresh the page."""
+        departments = self.data_manager.departments
+        if departments:
+            self.dept_dropdown.configure(values=departments)
+            if self.dept_var.get() == "Select Department":
+                self.dept_var.set(departments[0])
+        else:
+            self.dept_dropdown.configure(values=["Select Department"])
+            self.dept_var.set("Select Department")
 
 
-class ExportFrame(ctk.CTkFrame):
-    """Frame for exporting seating arrangements to Word documents."""
+# ==================== Export Page ====================
 
-    def __init__(self, master, data_manager: DataManager, algorithm: SeatingAlgorithm, exporter: WordExporter, **kwargs):
-        super().__init__(master, **kwargs)
+class ExportPage(ctk.CTkFrame):
+    """Export report page."""
+
+    def __init__(
+        self,
+        master,
+        data_manager: DataManager,
+        algorithm: ZigzagSeatingAlgorithm,
+        exporter: WordExporter,
+        **kwargs
+    ):
+        super().__init__(master, fg_color="transparent", **kwargs)
 
         self.data_manager = data_manager
         self.algorithm = algorithm
         self.exporter = exporter
 
-        # Title
+        # Page Title
         self.title = ctk.CTkLabel(
             self,
-            text="📄 Export to Word",
-            font=ctk.CTkFont(size=24, weight="bold")
+            text="Export Report",
+            font=ctk.CTkFont(size=28, weight="bold")
         )
-        self.title.pack(pady=(40, 10))
+        self.title.pack(anchor="w", pady=(0, 5))
 
-        self.description = ctk.CTkLabel(
+        self.subtitle = ctk.CTkLabel(
             self,
-            text="Export the seating arrangement to a formatted Word document",
+            text="Generate professional Word documents",
             font=ctk.CTkFont(size=14),
-            text_color="gray"
+            text_color=COLORS["text_secondary"]
         )
-        self.description.pack(pady=(0, 30))
+        self.subtitle.pack(anchor="w", pady=(0, 20))
 
-        # Options Frame
-        self.options_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.options_frame.pack(pady=10, padx=40, fill="x")
+        # Export Options Card
+        self.options_card = ctk.CTkFrame(self, corner_radius=15)
+        self.options_card.pack(fill="x", pady=(0, 20))
+
+        self.options_title = ctk.CTkLabel(
+            self.options_card,
+            text="Export Options",
+            font=ctk.CTkFont(size=14, weight="bold")
+        )
+        self.options_title.pack(anchor="w", padx=20, pady=(15, 15))
+
+        # Department
+        self.dept_frame = ctk.CTkFrame(self.options_card, fg_color="transparent")
+        self.dept_frame.pack(fill="x", padx=20, pady=5)
+
+        self.dept_label = ctk.CTkLabel(
+            self.dept_frame,
+            text="Department:",
+            font=ctk.CTkFont(size=12),
+            width=100
+        )
+        self.dept_label.pack(side="left")
+
+        self.dept_var = ctk.StringVar(value="Select Department")
+        self.dept_dropdown = ctk.CTkOptionMenu(
+            self.dept_frame,
+            variable=self.dept_var,
+            values=["Select Department"],
+            width=250
+        )
+        self.dept_dropdown.pack(side="left")
 
         # Exam Title
-        self.exam_title_label = ctk.CTkLabel(
-            self.options_frame,
+        self.title_frame = ctk.CTkFrame(self.options_card, fg_color="transparent")
+        self.title_frame.pack(fill="x", padx=20, pady=5)
+
+        self.title_label = ctk.CTkLabel(
+            self.title_frame,
             text="Exam Title:",
-            font=ctk.CTkFont(size=14, weight="bold")
+            font=ctk.CTkFont(size=12),
+            width=100
         )
-        self.exam_title_label.pack(anchor="w")
+        self.title_label.pack(side="left")
 
-        self.exam_title_entry = ctk.CTkEntry(
-            self.options_frame,
+        self.title_entry = ctk.CTkEntry(
+            self.title_frame,
             placeholder_text="e.g., Final Exam Seating Arrangement",
-            height=40,
-            font=ctk.CTkFont(size=14)
+            width=400
         )
-        self.exam_title_entry.pack(fill="x", pady=(5, 15))
-        self.exam_title_entry.insert(0, "Exam Seating Arrangement")
+        self.title_entry.pack(side="left")
+        self.title_entry.insert(0, "Exam Seating Arrangement")
 
-        # Exam Date
-        self.exam_date_label = ctk.CTkLabel(
-            self.options_frame,
-            text="Exam Date (optional):",
-            font=ctk.CTkFont(size=14, weight="bold")
-        )
-        self.exam_date_label.pack(anchor="w")
+        # Date
+        self.date_frame = ctk.CTkFrame(self.options_card, fg_color="transparent")
+        self.date_frame.pack(fill="x", padx=20, pady=5)
 
-        self.exam_date_entry = ctk.CTkEntry(
-            self.options_frame,
-            placeholder_text="e.g., January 15, 2025",
-            height=40,
-            font=ctk.CTkFont(size=14)
+        self.date_label = ctk.CTkLabel(
+            self.date_frame,
+            text="Exam Date:",
+            font=ctk.CTkFont(size=12),
+            width=100
         )
-        self.exam_date_entry.pack(fill="x", pady=(5, 15))
+        self.date_label.pack(side="left")
 
-        # Export Format
-        self.format_label = ctk.CTkLabel(
-            self.options_frame,
-            text="Export Format:",
-            font=ctk.CTkFont(size=14, weight="bold")
+        self.date_entry = ctk.CTkEntry(
+            self.date_frame,
+            placeholder_text="Leave empty for today's date",
+            width=250
         )
-        self.format_label.pack(anchor="w")
+        self.date_entry.pack(side="left")
 
-        self.format_var = ctk.StringVar(value="Standard Table")
-        self.format_dropdown = ctk.CTkOptionMenu(
-            self.options_frame,
-            variable=self.format_var,
-            values=["Standard Table", "Organized by Column"],
-            width=200,
-            height=40
+        # Include Map Option
+        self.map_frame = ctk.CTkFrame(self.options_card, fg_color="transparent")
+        self.map_frame.pack(fill="x", padx=20, pady=(10, 15))
+
+        self.map_var = ctk.BooleanVar(value=True)
+        self.map_check = ctk.CTkCheckBox(
+            self.map_frame,
+            text="Include Visual Seating Map",
+            variable=self.map_var,
+            font=ctk.CTkFont(size=12)
         )
-        self.format_dropdown.pack(anchor="w", pady=(5, 0))
+        self.map_check.pack(anchor="w")
 
         # Export Button
         self.export_btn = ctk.CTkButton(
             self,
-            text="💾 Export to Word Document",
+            text="📄 Export to Word Document",
             font=ctk.CTkFont(size=16, weight="bold"),
             height=50,
-            width=300,
+            fg_color=COLORS["primary"],
             command=self._export
         )
-        self.export_btn.pack(pady=40)
+        self.export_btn.pack(pady=20)
 
-        # Status
-        self.status_label = ctk.CTkLabel(
-            self,
-            text="",
-            font=ctk.CTkFont(size=13)
+        # Preview/Status Card
+        self.status_card = ctk.CTkFrame(self, corner_radius=15)
+        self.status_card.pack(fill="both", expand=True)
+
+        self.status_title = ctk.CTkLabel(
+            self.status_card,
+            text="Export Preview",
+            font=ctk.CTkFont(size=14, weight="bold")
         )
-        self.status_label.pack(pady=10)
+        self.status_title.pack(anchor="w", padx=20, pady=(15, 10))
+
+        self.status_text = ctk.CTkTextbox(
+            self.status_card,
+            font=ctk.CTkFont(size=12)
+        )
+        self.status_text.pack(fill="both", expand=True, padx=20, pady=(0, 15))
+        self._update_preview()
+        self.status_text.configure(state="disabled")
+
+    def _update_preview(self):
+        """Update the preview text."""
+        self.status_text.configure(state="normal")
+        self.status_text.delete("1.0", "end")
+
+        result = self.algorithm.result
+        if not result or not result.desks:
+            self.status_text.insert("1.0", "No seating arrangement generated yet.\n\n")
+            self.status_text.insert("end", "Please go to 'Generate Seats' page first to create\n")
+            self.status_text.insert("end", "a seating arrangement before exporting.")
+        else:
+            self.status_text.insert("1.0", "✅ Seating arrangement ready for export!\n\n")
+            self.status_text.insert("end", f"• Total Desks: {result.total_desks}\n")
+            self.status_text.insert("end", f"• Total Students: {result.total_students}\n")
+            self.status_text.insert("end", f"• Cross-Stage Pairs: {result.cross_stage_count}\n")
+            self.status_text.insert("end", f"• Same-Stage Pairs: {result.same_stage_count}\n\n")
+
+            if result.warnings:
+                self.status_text.insert("end", "⚠️ Warnings:\n")
+                for warning in result.warnings:
+                    self.status_text.insert("end", f"  • {warning}\n")
+
+        self.status_text.configure(state="disabled")
 
     def _export(self):
-        """Export the seating arrangement."""
-        assignments = self.algorithm.assignments
-
-        if not assignments:
-            messagebox.showerror(
-                "No Data",
-                "No seating arrangement to export.\n"
-                "Please generate seating first."
-            )
+        """Export the report."""
+        result = self.algorithm.result
+        if not result or not result.desks:
+            messagebox.showerror("Error", "No seating arrangement to export.\nPlease generate seating first.")
             return
 
-        # Get export options
-        exam_title = self.exam_title_entry.get() or "Exam Seating Arrangement"
-        exam_date = self.exam_date_entry.get() or None
-        department = self.data_manager.department_name or "Unknown Department"
+        dept_name = self.dept_var.get()
+        if dept_name == "Select Department":
+            messagebox.showwarning("Warning", "Please select a department.")
+            return
+
+        # Get options
+        exam_title = self.title_entry.get() or "Exam Seating Arrangement"
+        exam_date = self.date_entry.get() or None
+        include_map = self.map_var.get()
 
         # Get save path
         file_path = filedialog.asksaveasfilename(
             title="Save Word Document",
             defaultextension=".docx",
             filetypes=[("Word Documents", "*.docx")],
-            initialfilename="exam_seating.docx"
+            initialfilename=f"{dept_name.replace(' ', '_')}_seating.docx"
         )
 
         if not file_path:
             return
 
-        # Export based on format
-        export_format = self.format_var.get()
-
-        if export_format == "Organized by Column":
-            success, message = self.exporter.export_by_column(
-                assignments, department, file_path, exam_title, exam_date
-            )
-        else:
-            success, message = self.exporter.export(
-                assignments, department, file_path, exam_title, exam_date
-            )
+        # Export
+        success, message = self.exporter.export(
+            result=result,
+            university_name=self.data_manager.university_name,
+            department_name=dept_name,
+            output_path=file_path,
+            exam_title=exam_title,
+            exam_date=exam_date,
+            include_map=include_map
+        )
 
         if success:
-            self.status_label.configure(text=f"✅ {message}", text_color="green")
-            messagebox.showinfo("Export Successful", message)
+            messagebox.showinfo("Success", message)
 
-            # Ask to open file
             if messagebox.askyesno("Open File", "Would you like to open the exported file?"):
-                os.startfile(file_path) if os.name == 'nt' else os.system(f'xdg-open "{file_path}"')
+                try:
+                    if os.name == 'nt':
+                        os.startfile(file_path)
+                    else:
+                        os.system(f'xdg-open "{file_path}"')
+                except Exception:
+                    pass
         else:
-            self.status_label.configure(text=f"❌ {message}", text_color="red")
-            messagebox.showerror("Export Failed", message)
+            messagebox.showerror("Export Error", message)
 
     def refresh(self):
-        """Refresh the frame."""
-        pass
+        """Refresh the page."""
+        departments = self.data_manager.departments
+        if departments:
+            self.dept_dropdown.configure(values=departments)
+            if self.dept_var.get() == "Select Department":
+                self.dept_var.set(departments[0])
+        else:
+            self.dept_dropdown.configure(values=["Select Department"])
+            self.dept_var.set("Select Department")
 
+        self._update_preview()
+
+
+# ==================== Main Application ====================
 
 class ExamSeatingApp(ctk.CTk):
     """Main application window."""
@@ -743,17 +1193,13 @@ class ExamSeatingApp(ctk.CTk):
         super().__init__()
 
         # Window Configuration
-        self.title("Exam Seating Management")
-        self.geometry("1100x700")
-        self.minsize(900, 600)
-
-        # Set default theme
-        ctk.set_appearance_mode("system")
-        ctk.set_default_color_theme("blue")
+        self.title("University Exam Seating System")
+        self.geometry("1200x750")
+        self.minsize(1000, 650)
 
         # Initialize core components
         self.data_manager = DataManager()
-        self.algorithm = SeatingAlgorithm()
+        self.algorithm = ZigzagSeatingAlgorithm()
         self.exporter = WordExporter()
 
         # Configure grid
@@ -761,77 +1207,73 @@ class ExamSeatingApp(ctk.CTk):
         self.grid_rowconfigure(0, weight=1)
 
         # Create Sidebar
-        self.sidebar = SidebarFrame(
-            self,
-            nav_callback=self._navigate,
-            width=200,
-            corner_radius=0
-        )
+        self.sidebar = Sidebar(self, nav_callback=self._navigate)
         self.sidebar.grid(row=0, column=0, sticky="nsw")
 
         # Create main content area
-        self.main_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.main_frame.grid(row=0, column=1, sticky="nsew", padx=20, pady=20)
-        self.main_frame.grid_columnconfigure(0, weight=1)
-        self.main_frame.grid_rowconfigure(0, weight=1)
+        self.content_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.content_frame.grid(row=0, column=1, sticky="nsew", padx=25, pady=25)
+        self.content_frame.grid_columnconfigure(0, weight=1)
+        self.content_frame.grid_rowconfigure(0, weight=1)
 
-        # Create content frames
-        self.frames = {}
-        self._create_frames()
+        # Create pages
+        self.pages = {}
+        self._create_pages()
 
-        # Show home frame initially
-        self._show_frame("home")
+        # Show dashboard
+        self._show_page("dashboard")
 
-    def _create_frames(self):
-        """Create all content frames."""
-        self.frames["home"] = HomeFrame(
-            self.main_frame,
+    def _create_pages(self):
+        """Create all application pages."""
+        self.pages["dashboard"] = DashboardPage(
+            self.content_frame,
             self.data_manager
         )
 
-        self.frames["import"] = ImportFrame(
-            self.main_frame,
+        self.pages["departments"] = DepartmentsPage(
+            self.content_frame,
             self.data_manager
         )
 
-        self.frames["view"] = ViewDataFrame(
-            self.main_frame,
+        self.pages["students"] = StudentsPage(
+            self.content_frame,
             self.data_manager
         )
 
-        self.frames["generate"] = GenerateFrame(
-            self.main_frame,
+        self.pages["generate"] = GeneratePage(
+            self.content_frame,
             self.data_manager,
             self.algorithm
         )
 
-        self.frames["export"] = ExportFrame(
-            self.main_frame,
+        self.pages["export"] = ExportPage(
+            self.content_frame,
             self.data_manager,
             self.algorithm,
             self.exporter
         )
 
-        # Place all frames in the same position
-        for frame in self.frames.values():
-            frame.grid(row=0, column=0, sticky="nsew")
+        # Place all pages in the same grid cell
+        for page in self.pages.values():
+            page.grid(row=0, column=0, sticky="nsew")
 
-    def _show_frame(self, key: str):
-        """Show a specific frame."""
-        frame = self.frames.get(key)
-        if frame:
-            frame.tkraise()
-            # Refresh the frame if it has a refresh method
-            if hasattr(frame, 'refresh'):
-                frame.refresh()
+    def _show_page(self, key: str):
+        """Show a specific page."""
+        page = self.pages.get(key)
+        if page:
+            page.tkraise()
+            if hasattr(page, 'refresh'):
+                page.refresh()
 
     def _navigate(self, key: str):
-        """Handle navigation from sidebar."""
-        self._show_frame(key)
+        """Handle navigation."""
+        self._show_page(key)
 
+
+# ==================== Entry Point ====================
 
 def main():
-    """Main entry point."""
+    """Application entry point."""
     app = ExamSeatingApp()
     app.mainloop()
 
