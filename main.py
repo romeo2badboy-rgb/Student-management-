@@ -1317,7 +1317,7 @@ class ExportPage(ctk.CTkFrame):
 
         self.options_title = ctk.CTkLabel(
             self.options_card,
-            text="⚙️ Export Options",
+            text="⚙️ خيارات التصدير - Export Options",
             font=ctk.CTkFont(size=14, weight="bold")
         )
         self.options_title.pack(anchor="w", padx=20, pady=(15, 15))
@@ -1326,13 +1326,13 @@ class ExportPage(ctk.CTkFrame):
         options_frame = ctk.CTkFrame(self.options_card, fg_color="transparent")
         options_frame.pack(fill="x", padx=20, pady=(0, 15))
 
-        # Row 1: Department
+        # Row 1: Department / القسم
         ctk.CTkLabel(
             options_frame,
-            text="Department:",
+            text="القسم / Department:",
             font=ctk.CTkFont(size=12, weight="bold"),
-            width=100
-        ).grid(row=0, column=0, sticky="w", pady=8)
+            width=140
+        ).grid(row=0, column=0, sticky="w", pady=6)
 
         self.dept_var = ctk.StringVar(value="Select Department")
         self.dept_dropdown = ctk.CTkOptionMenu(
@@ -1342,63 +1342,96 @@ class ExportPage(ctk.CTkFrame):
             width=250,
             height=36
         )
-        self.dept_dropdown.grid(row=0, column=1, sticky="w", pady=8, padx=(10, 0))
+        self.dept_dropdown.grid(row=0, column=1, sticky="w", pady=6, padx=(10, 0))
 
-        # Row 2: Exam Title
+        # Row 2: Room Number / رقم القاعة
         ctk.CTkLabel(
             options_frame,
-            text="Exam Title:",
+            text="رقم القاعة / Room #:",
             font=ctk.CTkFont(size=12, weight="bold"),
-            width=100
-        ).grid(row=1, column=0, sticky="w", pady=8)
+            width=140
+        ).grid(row=1, column=0, sticky="w", pady=6)
+
+        self.room_entry = ctk.CTkEntry(
+            options_frame,
+            placeholder_text="1",
+            width=100,
+            height=36
+        )
+        self.room_entry.grid(row=1, column=1, sticky="w", pady=6, padx=(10, 0))
+        self.room_entry.insert(0, "1")
+
+        # Row 3: Director Name / اسم المدير
+        ctk.CTkLabel(
+            options_frame,
+            text="مدير الاعدادية / Director:",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            width=140
+        ).grid(row=2, column=0, sticky="w", pady=6)
+
+        self.director_entry = ctk.CTkEntry(
+            options_frame,
+            placeholder_text="اسم المدير",
+            width=300,
+            height=36
+        )
+        self.director_entry.grid(row=2, column=1, sticky="w", pady=6, padx=(10, 0))
+
+        # Row 4: Exam Title / عنوان الامتحان
+        ctk.CTkLabel(
+            options_frame,
+            text="العنوان / Exam Title:",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            width=140
+        ).grid(row=3, column=0, sticky="w", pady=6)
 
         self.title_entry = ctk.CTkEntry(
             options_frame,
-            placeholder_text="e.g., Final Exam Seating",
-            width=400,
+            placeholder_text="توزيع مقاعد الامتحان",
+            width=350,
             height=36
         )
-        self.title_entry.grid(row=1, column=1, sticky="w", pady=8, padx=(10, 0))
-        self.title_entry.insert(0, "Exam Seating Arrangement")
+        self.title_entry.grid(row=3, column=1, sticky="w", pady=6, padx=(10, 0))
+        self.title_entry.insert(0, "توزيع مقاعد الامتحان")
 
-        # Row 3: Date
+        # Row 5: Date / التاريخ
         ctk.CTkLabel(
             options_frame,
-            text="Exam Date:",
+            text="التاريخ / Date:",
             font=ctk.CTkFont(size=12, weight="bold"),
-            width=100
-        ).grid(row=2, column=0, sticky="w", pady=8)
+            width=140
+        ).grid(row=4, column=0, sticky="w", pady=6)
 
         self.date_entry = ctk.CTkEntry(
             options_frame,
-            placeholder_text="Leave empty for today's date",
-            width=250,
+            placeholder_text="اتركه فارغاً لتاريخ اليوم",
+            width=200,
             height=36
         )
-        self.date_entry.grid(row=2, column=1, sticky="w", pady=8, padx=(10, 0))
+        self.date_entry.grid(row=4, column=1, sticky="w", pady=6, padx=(10, 0))
 
-        # Row 4: Options
+        # Row 6: Options / خيارات
         ctk.CTkLabel(
             options_frame,
-            text="Options:",
+            text="خيارات / Options:",
             font=ctk.CTkFont(size=12, weight="bold"),
-            width=100
-        ).grid(row=3, column=0, sticky="w", pady=8)
+            width=140
+        ).grid(row=5, column=0, sticky="w", pady=6)
 
         self.map_var = ctk.BooleanVar(value=True)
         self.map_check = ctk.CTkCheckBox(
             options_frame,
-            text="Include Visual Seating Map",
+            text="تضمين خريطة المقاعد / Include Seating Map",
             variable=self.map_var,
             font=ctk.CTkFont(size=12)
         )
-        self.map_check.grid(row=3, column=1, sticky="w", pady=8, padx=(10, 0))
+        self.map_check.grid(row=5, column=1, sticky="w", pady=6, padx=(10, 0))
 
     def _create_export_button(self):
         """Create export button."""
         self.export_btn = ctk.CTkButton(
             self,
-            text="📄 Export to Word Document",
+            text="📄 تصدير إلى Word / Export to Word",
             font=ctk.CTkFont(size=15, weight="bold"),
             height=50,
             fg_color=COLORS["primary"],
@@ -1465,23 +1498,30 @@ class ExportPage(ctk.CTkFrame):
         try:
             result = self.algorithm.result
             if not result or not result.desks:
-                messagebox.showerror("Error", "No seating arrangement to export.\nPlease generate seating first.")
+                messagebox.showerror("خطأ / Error", "لا يوجد توزيع مقاعد للتصدير.\nNo seating arrangement to export.\nPlease generate seating first.")
                 return
 
             dept_name = self.dept_var.get()
             if dept_name == "Select Department":
-                messagebox.showwarning("Warning", "Please select a department.")
+                messagebox.showwarning("تحذير / Warning", "يرجى اختيار القسم.\nPlease select a department.")
                 return
 
             # Get options
-            exam_title = self.title_entry.get().strip() or "Exam Seating Arrangement"
+            exam_title = self.title_entry.get().strip() or "توزيع مقاعد الامتحان"
             exam_date = self.date_entry.get().strip() or None
             include_map = self.map_var.get()
+            director_name = self.director_entry.get().strip()
+
+            # Get room number (default to 1)
+            try:
+                room_number = int(self.room_entry.get().strip() or "1")
+            except ValueError:
+                room_number = 1
 
             # Get save path
-            default_name = f"{dept_name.replace(' ', '_')}_seating.docx"
+            default_name = f"قاعة_{room_number}_{dept_name.replace(' ', '_')}_seating.docx"
             file_path = filedialog.asksaveasfilename(
-                title="Save Word Document",
+                title="حفظ المستند / Save Word Document",
                 defaultextension=".docx",
                 filetypes=[("Word Documents", "*.docx")],
                 initialfile=default_name
@@ -1498,7 +1538,9 @@ class ExportPage(ctk.CTkFrame):
                 output_path=file_path,
                 exam_title=exam_title,
                 exam_date=exam_date,
-                include_map=include_map
+                include_map=include_map,
+                director_name=director_name,
+                room_number=room_number
             )
 
             if success:
