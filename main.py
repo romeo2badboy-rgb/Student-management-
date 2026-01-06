@@ -68,13 +68,14 @@ ARABIC_TEXT = {
     # العناوين الرئيسية
     "app_title": "نظام توزيع المقاعد",
     "app_subtitle": "إدارة الامتحانات",
-    "version": "الإصدار 3.0",
+    "version": "الإصدار 3.5",
 
     # القائمة الجانبية
     "nav_dashboard": "الرئيسية",
     "nav_departments": "الأقسام",
     "nav_students": "الطلاب",
     "nav_generate": "توليد التوزيع",
+    "nav_comprehensive": "الترتيب الشامل",
     "nav_export": "التصدير",
     "clear_all": "مسح جميع البيانات",
     "theme": "المظهر",
@@ -165,6 +166,24 @@ ARABIC_TEXT = {
     "no_data": "لا توجد بيانات للتصدير",
     "generate_first": "يرجى توليد التوزيع أولاً",
     "ready_export": "البيانات جاهزة للتصدير!",
+
+    # صفحة الترتيب الشامل
+    "comprehensive_title": "الترتيب الشامل",
+    "comprehensive_subtitle": "خلط جميع الأقسام والمراحل في قاعات متعددة",
+    "comprehensive_info": "ميزة الترتيب الشامل",
+    "comprehensive_desc": "• تجمع جميع الطلاب من جميع الأقسام\n• تخلط المراحل والأقسام معاً\n• توزع على قاعات (كل قاعة 18 مقعد = 36 طالب)\n• تضمن عدم جلوس طالبين من نفس المرحلة/القسم معاً",
+    "desks_per_room": "عدد المقاعد لكل قاعة",
+    "generate_comprehensive": "توليد الترتيب الشامل",
+    "total_students_all": "إجمالي الطلاب",
+    "total_rooms": "عدد القاعات",
+    "rooms": "قاعات",
+    "room": "قاعة",
+    "view_room": "عرض القاعة",
+    "export_all_rooms": "تصدير جميع القاعات",
+    "comprehensive_results": "نتائج الترتيب الشامل",
+    "room_details": "تفاصيل القاعة",
+    "students_in_room": "طلاب في هذه القاعة",
+    "anti_cheat_percentage": "نسبة منع الغش",
 
     # الرسائل
     "warning": "تحذير",
@@ -270,6 +289,7 @@ class Sidebar(ctk.CTkFrame):
             ("departments", ARABIC_TEXT["nav_departments"]),
             ("students", ARABIC_TEXT["nav_students"]),
             ("generate", ARABIC_TEXT["nav_generate"]),
+            ("comprehensive", ARABIC_TEXT["nav_comprehensive"]),
             ("export", ARABIC_TEXT["nav_export"]),
         ]
 
@@ -1374,6 +1394,437 @@ class GeneratePage(ctk.CTkFrame):
             print(f"Error refreshing generate page: {e}")
 
 
+# ==================== صفحة الترتيب الشامل ====================
+
+class ComprehensivePage(ctk.CTkFrame):
+    """صفحة الترتيب الشامل - خلط جميع الأقسام والمراحل"""
+
+    def __init__(
+        self,
+        master,
+        data_manager: DataManager,
+        algorithm: ZigzagSeatingAlgorithm,
+        exporter: WordExporter,
+        **kwargs
+    ):
+        super().__init__(master, fg_color="transparent", **kwargs)
+
+        self.data_manager = data_manager
+        self.algorithm = algorithm
+        self.exporter = exporter
+        self.current_room_index = 0
+
+        self._create_header()
+        self._create_info_section()
+        self._create_controls()
+        self._create_results_section()
+
+    def _create_header(self):
+        """إنشاء رأس الصفحة"""
+        self.title = ctk.CTkLabel(
+            self,
+            text=ARABIC_TEXT["comprehensive_title"],
+            font=ctk.CTkFont(size=SCALE["font_title"], weight="bold")
+        )
+        self.title.pack(anchor="e", pady=(0, 5))
+
+        self.subtitle = ctk.CTkLabel(
+            self,
+            text=ARABIC_TEXT["comprehensive_subtitle"],
+            font=ctk.CTkFont(size=SCALE["font_subtitle"]),
+            text_color=COLORS["text_secondary"]
+        )
+        self.subtitle.pack(anchor="e", pady=(0, SCALE["padding_large"]))
+
+    def _create_info_section(self):
+        """إنشاء قسم المعلومات"""
+        self.info_card = ctk.CTkFrame(self, corner_radius=SCALE["card_corner"])
+        self.info_card.pack(fill="x", pady=(0, SCALE["padding_medium"]))
+
+        self.info_title = ctk.CTkLabel(
+            self.info_card,
+            text=ARABIC_TEXT["comprehensive_info"],
+            font=ctk.CTkFont(size=14, weight="bold")
+        )
+        self.info_title.pack(anchor="e", padx=20, pady=(15, 8))
+
+        self.info_label = ctk.CTkLabel(
+            self.info_card,
+            text=ARABIC_TEXT["comprehensive_desc"],
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_secondary"],
+            justify="right"
+        )
+        self.info_label.pack(anchor="e", padx=20, pady=(0, 15))
+
+    def _create_controls(self):
+        """إنشاء عناصر التحكم"""
+        self.control_card = ctk.CTkFrame(self, corner_radius=SCALE["card_corner"])
+        self.control_card.pack(fill="x", pady=(0, SCALE["padding_medium"]))
+
+        control_inner = ctk.CTkFrame(self.control_card, fg_color="transparent")
+        control_inner.pack(fill="x", padx=20, pady=15)
+
+        # عدد المقاعد لكل قاعة
+        self.desks_label = ctk.CTkLabel(
+            control_inner,
+            text=ARABIC_TEXT["desks_per_room"] + ":",
+            font=ctk.CTkFont(size=13, weight="bold")
+        )
+        self.desks_label.pack(side="right", padx=(10, 0))
+
+        self.desks_entry = ctk.CTkEntry(
+            control_inner,
+            width=80,
+            height=40,
+            justify="center"
+        )
+        self.desks_entry.pack(side="right", padx=(0, 10))
+        self.desks_entry.insert(0, "18")
+
+        # زر التوليد
+        self.generate_btn = ctk.CTkButton(
+            control_inner,
+            text=ARABIC_TEXT["generate_comprehensive"],
+            font=ctk.CTkFont(size=14, weight="bold"),
+            height=45,
+            width=200,
+            fg_color=COLORS["accent"],
+            hover_color="#6D28D9",
+            command=self._generate_comprehensive
+        )
+        self.generate_btn.pack(side="left")
+
+        # إحصائيات
+        self.stats_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.stats_frame.pack(fill="x", pady=(0, SCALE["padding_medium"]))
+        self.stats_frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
+
+        self.stat_labels = {}
+        stats_config = [
+            ("rooms", ARABIC_TEXT["total_rooms"], "0", COLORS["accent"]),
+            ("students", ARABIC_TEXT["total_students_all"], "0", COLORS["success"]),
+            ("desks", ARABIC_TEXT["desks_count"], "0", COLORS["primary"]),
+            ("anti_cheat", ARABIC_TEXT["anti_cheat_percentage"], "0%", COLORS["warning"])
+        ]
+
+        for i, (key, label, value, color) in enumerate(stats_config):
+            card = self._create_mini_stat(self.stats_frame, label, value, color)
+            card.grid(row=0, column=3-i, padx=5, pady=5, sticky="nsew")
+            self.stat_labels[key] = card
+
+    def _create_mini_stat(self, parent, label: str, value: str, color: str) -> ctk.CTkFrame:
+        """إنشاء بطاقة إحصائية صغيرة"""
+        card = ctk.CTkFrame(parent, corner_radius=10, height=80)
+        card.pack_propagate(False)
+
+        accent = ctk.CTkFrame(card, height=3, fg_color=color, corner_radius=2)
+        accent.pack(fill="x", padx=8, pady=(8, 0))
+
+        value_label = ctk.CTkLabel(
+            card,
+            text=value,
+            font=ctk.CTkFont(size=22, weight="bold")
+        )
+        value_label.pack(pady=(8, 2))
+
+        text_label = ctk.CTkLabel(
+            card,
+            text=label,
+            font=ctk.CTkFont(size=10),
+            text_color=COLORS["text_secondary"]
+        )
+        text_label.pack(pady=(0, 8))
+
+        card.value_label = value_label
+        return card
+
+    def _create_results_section(self):
+        """إنشاء قسم النتائج"""
+        self.results_card = ctk.CTkFrame(self, corner_radius=SCALE["card_corner"])
+        self.results_card.pack(fill="both", expand=True)
+
+        # رأس النتائج مع أزرار التنقل بين القاعات
+        header_frame = ctk.CTkFrame(self.results_card, fg_color="transparent")
+        header_frame.pack(fill="x", padx=20, pady=(15, 10))
+
+        self.results_title = ctk.CTkLabel(
+            header_frame,
+            text=ARABIC_TEXT["comprehensive_results"],
+            font=ctk.CTkFont(size=14, weight="bold")
+        )
+        self.results_title.pack(side="right")
+
+        # أزرار التنقل بين القاعات
+        self.nav_frame = ctk.CTkFrame(header_frame, fg_color="transparent")
+        self.nav_frame.pack(side="left")
+
+        self.prev_btn = ctk.CTkButton(
+            self.nav_frame,
+            text="< السابقة",
+            width=90,
+            height=32,
+            font=ctk.CTkFont(size=11),
+            command=self._prev_room,
+            state="disabled"
+        )
+        self.prev_btn.pack(side="left", padx=5)
+
+        self.room_label = ctk.CTkLabel(
+            self.nav_frame,
+            text="قاعة 0 / 0",
+            font=ctk.CTkFont(size=12, weight="bold")
+        )
+        self.room_label.pack(side="left", padx=10)
+
+        self.next_btn = ctk.CTkButton(
+            self.nav_frame,
+            text="التالية >",
+            width=90,
+            height=32,
+            font=ctk.CTkFont(size=11),
+            command=self._next_room,
+            state="disabled"
+        )
+        self.next_btn.pack(side="left", padx=5)
+
+        # عرض النتائج
+        self.results_text = ctk.CTkTextbox(
+            self.results_card,
+            font=ctk.CTkFont(size=11, family="Courier")
+        )
+        self.results_text.pack(fill="both", expand=True, padx=20, pady=(0, 10))
+        self._show_initial_message()
+
+        # زر التصدير
+        self.export_frame = ctk.CTkFrame(self.results_card, fg_color="transparent")
+        self.export_frame.pack(fill="x", padx=20, pady=(0, 15))
+
+        self.export_btn = ctk.CTkButton(
+            self.export_frame,
+            text=ARABIC_TEXT["export_all_rooms"],
+            font=ctk.CTkFont(size=13, weight="bold"),
+            height=42,
+            fg_color=COLORS["primary"],
+            hover_color=COLORS["primary_hover"],
+            command=self._export_all,
+            state="disabled"
+        )
+        self.export_btn.pack(side="right")
+
+        # حقل اسم المدير
+        self.director_entry = ctk.CTkEntry(
+            self.export_frame,
+            placeholder_text=ARABIC_TEXT["director_name"],
+            width=250,
+            height=42,
+            justify="right"
+        )
+        self.director_entry.pack(side="right", padx=(10, 10))
+
+    def _show_initial_message(self):
+        """عرض الرسالة الأولية"""
+        self.results_text.configure(state="normal")
+        self.results_text.delete("1.0", "end")
+        self.results_text.insert("1.0", "الترتيب الشامل\n")
+        self.results_text.insert("end", "=" * 60 + "\n\n")
+        self.results_text.insert("end", "كيفية الاستخدام:\n\n")
+        self.results_text.insert("end", "1. أنشئ الأقسام (مثال: أمن سيبراني، إلكترون، شبكات...)\n")
+        self.results_text.insert("end", "2. أضف الطلاب لكل قسم ومرحلة\n")
+        self.results_text.insert("end", "3. حدد عدد المقاعد لكل قاعة (الافتراضي 18)\n")
+        self.results_text.insert("end", "4. اضغط 'توليد الترتيب الشامل'\n\n")
+        self.results_text.insert("end", "سيتم:\n")
+        self.results_text.insert("end", "  • جمع جميع الطلاب من جميع الأقسام\n")
+        self.results_text.insert("end", "  • خلط الأقسام والمراحل معاً\n")
+        self.results_text.insert("end", "  • توزيعهم على قاعات متعددة\n")
+        self.results_text.insert("end", "  • التأكد من عدم جلوس طالبين متشابهين معاً\n")
+        self.results_text.configure(state="disabled")
+
+    def _generate_comprehensive(self):
+        """توليد الترتيب الشامل"""
+        try:
+            # التحقق من صحة البيانات
+            is_valid, message = self.data_manager.validate_for_comprehensive_seating()
+            if not is_valid:
+                messagebox.showerror(ARABIC_TEXT["validation_error"], message)
+                return
+
+            # الحصول على عدد المقاعد لكل قاعة
+            try:
+                desks_per_room = int(self.desks_entry.get().strip() or "18")
+                if desks_per_room < 1:
+                    desks_per_room = 18
+            except ValueError:
+                desks_per_room = 18
+
+            # جمع جميع الطلاب
+            all_students = self.data_manager.get_all_students_flat()
+
+            if not all_students:
+                messagebox.showerror(ARABIC_TEXT["error"], "لا يوجد طلاب للتوزيع")
+                return
+
+            # توليد الترتيب الشامل
+            success, message, result = self.algorithm.generate_comprehensive(
+                all_students,
+                desks_per_room
+            )
+
+            if not success:
+                messagebox.showerror(ARABIC_TEXT["generation_error"], message)
+                return
+
+            # عرض النتائج
+            self.current_room_index = 0
+            self._display_room(0)
+            self._update_stats()
+            self._update_navigation()
+
+            # تفعيل زر التصدير
+            self.export_btn.configure(state="normal")
+
+            if result.warnings:
+                messagebox.showwarning("ملاحظة", "\n".join(result.warnings))
+            else:
+                messagebox.showinfo(
+                    ARABIC_TEXT["success"],
+                    f"تم التوليد بنجاح!\n{result.total_students} طالب في {len(result.rooms)} قاعة"
+                )
+
+        except Exception as e:
+            messagebox.showerror(ARABIC_TEXT["error"], f"فشل التوليد: {e}")
+            print(traceback.format_exc())
+
+    def _display_room(self, room_index: int):
+        """عرض تفاصيل قاعة معينة"""
+        result = self.algorithm.result
+        if not result or not result.rooms:
+            return
+
+        if room_index < 0 or room_index >= len(result.rooms):
+            return
+
+        room = result.rooms[room_index]
+        self.current_room_index = room_index
+
+        self.results_text.configure(state="normal")
+        self.results_text.delete("1.0", "end")
+
+        self.results_text.insert("end", f"قاعة رقم {room.number}\n")
+        self.results_text.insert("end", "=" * 80 + "\n\n")
+        self.results_text.insert("end", f"عدد الطلاب: {room.total_students} | ")
+        self.results_text.insert("end", f"عدد المقاعد: {len(room.desks)} | ")
+        self.results_text.insert("end", f"أزواج مختلطة: {room.cross_stage_pairs}\n\n")
+
+        # عرض المقاعد
+        header = f"{'الطالب ب':<35} {'الطالب أ':<35} {'المقعد':<10}\n"
+        self.results_text.insert("end", header)
+        self.results_text.insert("end", "-" * 80 + "\n")
+
+        for desk in room.desks:
+            student_a = self._format_student(desk.student_a) if desk.student_a else "-"
+            student_b = self._format_student(desk.student_b) if desk.student_b else "-"
+            row = f"{student_b:<35} {student_a:<35} {desk.number:<10}\n"
+            self.results_text.insert("end", row)
+
+        self.results_text.configure(state="disabled")
+
+    def _format_student(self, student) -> str:
+        """تنسيق اسم الطالب للعرض"""
+        if student.is_empty:
+            return "--- فارغ ---"
+        name = student.name[:20] + "..." if len(student.name) > 20 else student.name
+        dept = student.department[:5] if student.department else ""
+        stage = student.stage[:3] if student.stage else ""
+        return f"[{stage}-{dept}] {name}"
+
+    def _update_stats(self):
+        """تحديث الإحصائيات"""
+        result = self.algorithm.result
+        if not result:
+            return
+
+        self.stat_labels["rooms"].value_label.configure(text=str(len(result.rooms)))
+        self.stat_labels["students"].value_label.configure(text=str(result.total_students))
+        self.stat_labels["desks"].value_label.configure(text=str(result.total_desks))
+
+        # حساب نسبة منع الغش
+        if result.total_desks > 0:
+            percentage = (result.cross_stage_count / result.total_desks) * 100
+            self.stat_labels["anti_cheat"].value_label.configure(text=f"{percentage:.0f}%")
+        else:
+            self.stat_labels["anti_cheat"].value_label.configure(text="0%")
+
+    def _update_navigation(self):
+        """تحديث أزرار التنقل"""
+        result = self.algorithm.result
+        if not result or not result.rooms:
+            self.room_label.configure(text="قاعة 0 / 0")
+            self.prev_btn.configure(state="disabled")
+            self.next_btn.configure(state="disabled")
+            return
+
+        total = len(result.rooms)
+        current = self.current_room_index + 1
+        self.room_label.configure(text=f"قاعة {current} / {total}")
+
+        self.prev_btn.configure(state="normal" if self.current_room_index > 0 else "disabled")
+        self.next_btn.configure(state="normal" if self.current_room_index < total - 1 else "disabled")
+
+    def _prev_room(self):
+        """الانتقال للقاعة السابقة"""
+        if self.current_room_index > 0:
+            self._display_room(self.current_room_index - 1)
+            self._update_navigation()
+
+    def _next_room(self):
+        """الانتقال للقاعة التالية"""
+        result = self.algorithm.result
+        if result and result.rooms and self.current_room_index < len(result.rooms) - 1:
+            self._display_room(self.current_room_index + 1)
+            self._update_navigation()
+
+    def _export_all(self):
+        """تصدير جميع القاعات"""
+        try:
+            result = self.algorithm.result
+            if not result or not result.rooms:
+                messagebox.showerror(ARABIC_TEXT["error"], ARABIC_TEXT["no_data"])
+                return
+
+            director_name = self.director_entry.get().strip()
+
+            file_path = filedialog.asksaveasfilename(
+                title="حفظ ملفات القاعات",
+                defaultextension=".docx",
+                filetypes=[("Word Documents", "*.docx")],
+                initialfile="توزيع_شامل.docx"
+            )
+
+            if not file_path:
+                return
+
+            success, message = self.exporter.export(
+                result=result,
+                university_name=self.data_manager.university_name,
+                department_name="ترتيب شامل",
+                output_path=file_path,
+                director_name=director_name
+            )
+
+            if success:
+                messagebox.showinfo(ARABIC_TEXT["export_success"], message)
+            else:
+                messagebox.showerror(ARABIC_TEXT["error"], message)
+
+        except Exception as e:
+            messagebox.showerror(ARABIC_TEXT["error"], f"فشل التصدير: {e}")
+
+    def refresh(self):
+        """تحديث الصفحة"""
+        pass
+
+
 # ==================== صفحة التصدير ====================
 
 class ExportPage(ctk.CTkFrame):
@@ -1742,6 +2193,12 @@ class ExamSeatingApp(ctk.CTk):
         self.pages["departments"] = DepartmentsPage(self.content_frame, self.data_manager)
         self.pages["students"] = StudentsPage(self.content_frame, self.data_manager)
         self.pages["generate"] = GeneratePage(self.content_frame, self.data_manager, self.algorithm)
+        self.pages["comprehensive"] = ComprehensivePage(
+            self.content_frame,
+            self.data_manager,
+            self.algorithm,
+            self.exporter
+        )
         self.pages["export"] = ExportPage(self.content_frame, self.data_manager, self.algorithm, self.exporter)
 
         for page in self.pages.values():

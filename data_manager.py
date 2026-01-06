@@ -1,11 +1,14 @@
 """
-Data Manager Module - Advanced Version
-Handles multi-department student data with support for .docx and .xlsx imports.
+Data Manager Module - Advanced Version v3.0
+Handles multi-department student data with improved Arabic name extraction.
+إدارة بيانات الطلاب مع دعم محسن للأسماء العربية
 """
 
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
 import os
+import re
+
 
 # Import handlers
 try:
@@ -97,10 +100,18 @@ class DataManager:
 
     SUPPORTED_STAGES = ["1st Stage", "2nd Stage", "3rd Stage"]
 
+    # كلمات يجب تجاهلها عند استيراد الأسماء
+    SKIP_WORDS = [
+        'name', 'student', 'no', 'number', '#', 'stage', 'الاسم', 'رقم',
+        'ت', 'التسلسل', 'اسم', 'الطالب', 'ملاحظات', 'القسم', 'المرحلة',
+        'اولى', 'ثانية', 'ثالثة', 'رابعة', 'first', 'second', 'third',
+        'total', 'المجموع', 'العدد', 'count', 'page', 'صفحة'
+    ]
+
     def __init__(self):
         """Initialize the data manager."""
         self._departments: Dict[str, Department] = {}
-        self._university_name: str = "University Name"
+        self._university_name: str = "اسم المؤسسة"
         self._active_department: Optional[str] = None
 
     # ==================== University Settings ====================
@@ -113,7 +124,7 @@ class DataManager:
     @university_name.setter
     def university_name(self, name: str) -> None:
         """Set university name."""
-        self._university_name = name.strip() if name else "University Name"
+        self._university_name = name.strip() if name else "اسم المؤسسة"
 
     # ==================== Department Management ====================
 
@@ -134,48 +145,31 @@ class DataManager:
             self._active_department = name
 
     def create_department(self, name: str) -> Tuple[bool, str]:
-        """
-        Create a new department.
-
-        Args:
-            name: Department name
-
-        Returns:
-            Tuple of (success, message)
-        """
+        """Create a new department."""
         cleaned_name = name.strip()
         if not cleaned_name:
-            return False, "Department name cannot be empty."
+            return False, "اسم القسم لا يمكن أن يكون فارغاً"
 
         if cleaned_name in self._departments:
-            return False, f"Department '{cleaned_name}' already exists."
+            return False, f"القسم '{cleaned_name}' موجود مسبقاً"
 
         self._departments[cleaned_name] = Department(cleaned_name)
         if self._active_department is None:
             self._active_department = cleaned_name
 
-        return True, f"Department '{cleaned_name}' created successfully."
+        return True, f"تم إنشاء القسم '{cleaned_name}' بنجاح"
 
     def delete_department(self, name: str) -> Tuple[bool, str]:
-        """
-        Delete a department.
-
-        Args:
-            name: Department name to delete
-
-        Returns:
-            Tuple of (success, message)
-        """
+        """Delete a department."""
         if name not in self._departments:
-            return False, f"Department '{name}' not found."
+            return False, f"القسم '{name}' غير موجود"
 
         del self._departments[name]
 
-        # Update active department if needed
         if self._active_department == name:
             self._active_department = next(iter(self._departments), None)
 
-        return True, f"Department '{name}' deleted successfully."
+        return True, f"تم حذف القسم '{name}' بنجاح"
 
     def get_department(self, name: str) -> Optional[Department]:
         """Get a department by name."""
@@ -235,6 +229,37 @@ class DataManager:
                 return True
         return False
 
+    # ==================== جمع جميع الطلاب من جميع الأقسام ====================
+
+    def get_all_students_all_departments(self) -> Dict[str, Dict[str, List[str]]]:
+        """
+        جمع جميع الطلاب من جميع الأقسام والمراحل
+        Returns: {department_name: {stage_name: [students]}}
+        """
+        result = {}
+        for dept_name, dept in self._departments.items():
+            result[dept_name] = dept.get_all_students()
+        return result
+
+    def get_all_students_flat(self) -> List[Tuple[str, str, str]]:
+        """
+        جمع جميع الطلاب بشكل مسطح
+        Returns: [(student_name, stage_name, department_name), ...]
+        """
+        students = []
+        for dept_name, dept in self._departments.items():
+            for stage_name, stage in dept.stages.items():
+                for student in stage.students:
+                    students.append((student, stage_name, dept_name))
+        return students
+
+    def get_total_students_all(self) -> int:
+        """الحصول على إجمالي عدد الطلاب في جميع الأقسام"""
+        total = 0
+        for dept in self._departments.values():
+            total += dept.get_total_students()
+        return total
+
     # ==================== File Import ====================
 
     def import_from_file(
@@ -243,29 +268,17 @@ class DataManager:
         department: str,
         stage: str
     ) -> Tuple[bool, str, int]:
-        """
-        Import students from a .docx or .xlsx file.
-
-        Args:
-            file_path: Path to the file
-            department: Target department name
-            stage: Target stage name
-
-        Returns:
-            Tuple of (success, message, count)
-        """
-        # Validate inputs
+        """Import students from a .docx or .xlsx file."""
         if department not in self._departments:
-            return False, f"Department '{department}' not found.", 0
+            return False, f"القسم '{department}' غير موجود", 0
 
         dept = self._departments[department]
         if stage not in dept.stages:
-            return False, f"Invalid stage: {stage}", 0
+            return False, f"المرحلة غير صالحة: {stage}", 0
 
         if not os.path.exists(file_path):
-            return False, f"File not found: {file_path}", 0
+            return False, f"الملف غير موجود: {file_path}", 0
 
-        # Determine file type and import
         file_ext = os.path.splitext(file_path)[1].lower()
 
         try:
@@ -274,12 +287,12 @@ class DataManager:
             elif file_ext in ['.xlsx', '.xls']:
                 return self._import_xlsx(file_path, dept, stage)
             else:
-                return False, f"Unsupported file format: {file_ext}. Use .docx or .xlsx", 0
+                return False, f"صيغة ملف غير مدعومة: {file_ext}. استخدم .docx أو .xlsx", 0
 
         except PermissionError:
-            return False, "Permission denied. Please close the file if it's open.", 0
+            return False, "تم رفض الإذن. يرجى إغلاق الملف إذا كان مفتوحاً", 0
         except Exception as e:
-            return False, f"Error importing file: {str(e)}", 0
+            return False, f"خطأ في استيراد الملف: {str(e)}", 0
 
     def _import_docx(
         self,
@@ -287,38 +300,48 @@ class DataManager:
         department: Department,
         stage: str
     ) -> Tuple[bool, str, int]:
-        """Import students from a Word document."""
+        """Import students from a Word document with improved name extraction."""
         if not DOCX_AVAILABLE:
-            return False, "python-docx library not installed. Run: pip install python-docx", 0
+            return False, "مكتبة python-docx غير مثبتة. شغل: pip install python-docx", 0
 
         try:
             doc = Document(file_path)
             stage_obj = department.stages[stage]
             imported_count = 0
+            all_text_lines = []
 
-            # Extract from paragraphs
+            # جمع كل النصوص من الفقرات
             for para in doc.paragraphs:
-                names = self._extract_names(para.text)
+                text = para.text.strip()
+                if text:
+                    all_text_lines.append(text)
+
+            # جمع النصوص من الجداول
+            for table in doc.tables:
+                for row in table.rows:
+                    row_texts = []
+                    for cell in row.cells:
+                        cell_text = cell.text.strip()
+                        if cell_text:
+                            row_texts.append(cell_text)
+                    # معالجة كل صف
+                    for text in row_texts:
+                        all_text_lines.append(text)
+
+            # استخراج الأسماء من جميع النصوص
+            for line in all_text_lines:
+                names = self._extract_arabic_names(line)
                 for name in names:
                     if stage_obj.add_student(name):
                         imported_count += 1
 
-            # Extract from tables
-            for table in doc.tables:
-                for row in table.rows:
-                    for cell in row.cells:
-                        names = self._extract_names(cell.text)
-                        for name in names:
-                            if stage_obj.add_student(name):
-                                imported_count += 1
-
             if imported_count == 0:
-                return False, "No valid student names found in the document.", 0
+                return False, "لم يتم العثور على أسماء صالحة في المستند", 0
 
-            return True, f"Successfully imported {imported_count} students to {stage}.", imported_count
+            return True, f"تم استيراد {imported_count} طالب إلى {stage}", imported_count
 
         except Exception as e:
-            return False, f"Error reading .docx file: {str(e)}", 0
+            return False, f"خطأ في قراءة ملف .docx: {str(e)}", 0
 
     def _import_xlsx(
         self,
@@ -326,9 +349,9 @@ class DataManager:
         department: Department,
         stage: str
     ) -> Tuple[bool, str, int]:
-        """Import students from an Excel file."""
+        """Import students from an Excel file with improved name extraction."""
         if not XLSX_AVAILABLE:
-            return False, "openpyxl library not installed. Run: pip install openpyxl", 0
+            return False, "مكتبة openpyxl غير مثبتة. شغل: pip install openpyxl", 0
 
         try:
             workbook = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
@@ -339,7 +362,7 @@ class DataManager:
                 for row in sheet.iter_rows(values_only=True):
                     for cell_value in row:
                         if cell_value is not None:
-                            names = self._extract_names(str(cell_value))
+                            names = self._extract_arabic_names(str(cell_value))
                             for name in names:
                                 if stage_obj.add_student(name):
                                     imported_count += 1
@@ -347,61 +370,137 @@ class DataManager:
             workbook.close()
 
             if imported_count == 0:
-                return False, "No valid student names found in the Excel file.", 0
+                return False, "لم يتم العثور على أسماء صالحة في ملف Excel", 0
 
-            return True, f"Successfully imported {imported_count} students to {stage}.", imported_count
+            return True, f"تم استيراد {imported_count} طالب إلى {stage}", imported_count
 
         except Exception as e:
-            return False, f"Error reading .xlsx file: {str(e)}", 0
+            return False, f"خطأ في قراءة ملف .xlsx: {str(e)}", 0
 
-    def _extract_names(self, text: str) -> List[str]:
-        """Extract student names from text."""
+    def _extract_arabic_names(self, text: str) -> List[str]:
+        """
+        استخراج الأسماء العربية الثلاثية/الرباعية بشكل صحيح
+        يتجاهل الأرقام والكلمات غير المفيدة
+        """
         if not text:
             return []
 
-        # Split by common delimiters
         names = []
-        for delimiter in ['\n', ',', ';', '\t']:
-            text = text.replace(delimiter, '|')
 
-        parts = text.split('|')
+        # تنظيف النص
+        text = text.strip()
+
+        # إزالة الأرقام في بداية السطر (مثل: 1. أو 1- أو 1))
+        text = re.sub(r'^[\d]+[\.\-\)\]\:\s]+', '', text)
+
+        # تقسيم بالفواصل والأسطر الجديدة
+        for delimiter in ['\n', '\r', ';', '،', '|']:
+            text = text.replace(delimiter, ',')
+
+        parts = text.split(',')
+
         for part in parts:
             cleaned = part.strip()
-            # Filter out numbers-only entries and very short strings
-            if cleaned and len(cleaned) >= 2 and not cleaned.isdigit():
-                # Skip common header words
-                skip_words = ['name', 'student', 'no', 'number', '#', 'stage', 'الاسم', 'رقم']
-                if cleaned.lower() not in skip_words:
-                    names.append(cleaned)
+
+            # إزالة الأرقام في البداية مرة أخرى
+            cleaned = re.sub(r'^[\d]+[\.\-\)\]\:\s]*', '', cleaned)
+            cleaned = cleaned.strip()
+
+            if not cleaned:
+                continue
+
+            # تجاهل إذا كان رقماً فقط
+            if cleaned.isdigit():
+                continue
+
+            # تجاهل إذا كان قصيراً جداً (أقل من 4 أحرف)
+            if len(cleaned) < 4:
+                continue
+
+            # تجاهل الكلمات المحجوزة
+            if cleaned.lower() in self.SKIP_WORDS or cleaned in self.SKIP_WORDS:
+                continue
+
+            # التحقق من أن النص يحتوي على أحرف عربية أو إنجليزية
+            has_arabic = bool(re.search(r'[\u0600-\u06FF]', cleaned))
+            has_english = bool(re.search(r'[a-zA-Z]', cleaned))
+
+            if not (has_arabic or has_english):
+                continue
+
+            # التحقق من أن الاسم يحتوي على كلمتين على الأقل (اسم ثنائي)
+            words = cleaned.split()
+
+            # تصفية الكلمات - إزالة الأرقام والكلمات القصيرة جداً
+            valid_words = []
+            for word in words:
+                word = word.strip()
+                # إزالة الأرقام من الكلمة
+                word = re.sub(r'[\d]+', '', word)
+                word = word.strip()
+
+                if len(word) >= 2 and not word.isdigit():
+                    valid_words.append(word)
+
+            # يجب أن يكون الاسم ثنائياً على الأقل
+            if len(valid_words) >= 2:
+                full_name = ' '.join(valid_words)
+
+                # التحقق النهائي من عدم وجود كلمات محجوزة
+                is_valid = True
+                for skip in self.SKIP_WORDS:
+                    if skip in full_name.lower():
+                        is_valid = False
+                        break
+
+                if is_valid and full_name not in names:
+                    names.append(full_name)
 
         return names
+
+    def _extract_names(self, text: str) -> List[str]:
+        """Extract student names from text - legacy method."""
+        return self._extract_arabic_names(text)
 
     # ==================== Validation ====================
 
     def validate_for_seating(self, department: str) -> Tuple[bool, str]:
-        """
-        Validate if a department is ready for seating generation.
-
-        Args:
-            department: Department name
-
-        Returns:
-            Tuple of (is_valid, message)
-        """
+        """Validate if a department is ready for seating generation."""
         dept = self._departments.get(department)
         if not dept:
-            return False, f"Department '{department}' not found."
+            return False, f"القسم '{department}' غير موجود"
 
         stages_with_students = dept.get_stages_with_students()
 
         if len(stages_with_students) < 2:
-            return False, "At least 2 stages must have students for anti-cheating seating."
+            return False, "يجب وجود مرحلتين على الأقل مع طلاب لمنع الغش"
 
         total = dept.get_total_students()
         if total < 2:
-            return False, "At least 2 students are required."
+            return False, "يجب وجود طالبين على الأقل"
 
-        return True, "Data is valid for seating generation."
+        return True, "البيانات جاهزة للتوزيع"
+
+    def validate_for_comprehensive_seating(self) -> Tuple[bool, str]:
+        """التحقق من جاهزية البيانات للترتيب الشامل"""
+        if len(self._departments) == 0:
+            return False, "لا توجد أقسام. أنشئ قسماً واحداً على الأقل"
+
+        total_students = self.get_total_students_all()
+        if total_students < 2:
+            return False, "يجب وجود طالبين على الأقل في جميع الأقسام"
+
+        # التحقق من وجود مرحلتين مختلفتين على الأقل
+        all_stages = set()
+        for dept in self._departments.values():
+            for stage_name, stage in dept.stages.items():
+                if stage.count > 0:
+                    all_stages.add(stage_name)
+
+        if len(all_stages) < 2:
+            return False, "يجب وجود مرحلتين مختلفتين على الأقل (في أي قسم) لمنع الغش"
+
+        return True, f"جاهز! {total_students} طالب في {len(self._departments)} قسم"
 
     # ==================== Statistics ====================
 
@@ -454,7 +553,7 @@ class DataManager:
     def import_data(self, data: Dict) -> bool:
         """Import data from a dictionary."""
         try:
-            self._university_name = data.get("university_name", "University Name")
+            self._university_name = data.get("university_name", "اسم المؤسسة")
             self._departments.clear()
 
             for dept_name, dept_data in data.get("departments", {}).items():
