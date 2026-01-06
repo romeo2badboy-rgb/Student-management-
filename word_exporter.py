@@ -260,72 +260,44 @@ class WordExporter:
 
     def _fill_desk_cell(self, cell, desk: Desk) -> None:
         """
-        Fill a cell with student information.
-        تعبئة خلية ببيانات الطالب
+        Fill a cell with student information (name only, no stage).
+        تعبئة خلية باسم الطالب فقط
         """
         cell.text = ""
 
-        # Student A (Top of desk)
-        if desk.student_a and not desk.student_a.is_empty:
-            p_a = cell.paragraphs[0]
-            p_a.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            self._set_rtl_paragraph(p_a)
+        # Student A (Top of desk) - Name only
+        p_a = cell.paragraphs[0]
+        p_a.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        self._set_rtl_paragraph(p_a)
 
-            # Student name
+        if desk.student_a and not desk.student_a.is_empty:
             name_run = p_a.add_run(desk.student_a.name)
             name_run.bold = True
             name_run.font.size = Pt(11)
             name_run.font.name = "Arial"
-
-            # Stage
-            stage_p = cell.add_paragraph()
-            stage_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            self._set_rtl_paragraph(stage_p)
-            stage_text = self._get_arabic_stage(desk.student_a.stage)
-            stage_run = stage_p.add_run(f"({stage_text})")
-            stage_run.font.size = Pt(9)
-            stage_run.italic = True
-            stage_run.font.name = "Arial"
         else:
-            p_empty = cell.paragraphs[0]
-            p_empty.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            empty_run = p_empty.add_run(self.LABELS['empty'])
-            empty_run.font.size = Pt(10)
-            empty_run.italic = True
-            empty_run.font.name = "Arial"
+            # Empty cell placeholder
+            pass
 
-        # Separator
+        # Separator line
         sep_p = cell.add_paragraph()
         sep_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         sep_run = sep_p.add_run("─────────")
         sep_run.font.size = Pt(8)
 
-        # Student B (Bottom of desk)
+        # Student B (Bottom of desk) - Name only
         p_b = cell.add_paragraph()
         p_b.alignment = WD_ALIGN_PARAGRAPH.CENTER
         self._set_rtl_paragraph(p_b)
 
         if desk.student_b and not desk.student_b.is_empty:
-            # Student name
             name_run_b = p_b.add_run(desk.student_b.name)
             name_run_b.bold = True
             name_run_b.font.size = Pt(11)
             name_run_b.font.name = "Arial"
-
-            # Stage
-            stage_p_b = cell.add_paragraph()
-            stage_p_b.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            self._set_rtl_paragraph(stage_p_b)
-            stage_text_b = self._get_arabic_stage(desk.student_b.stage)
-            stage_run_b = stage_p_b.add_run(f"({stage_text_b})")
-            stage_run_b.font.size = Pt(9)
-            stage_run_b.italic = True
-            stage_run_b.font.name = "Arial"
         else:
-            empty_run_b = p_b.add_run(self.LABELS['empty'])
-            empty_run_b.font.size = Pt(10)
-            empty_run_b.italic = True
-            empty_run_b.font.name = "Arial"
+            # Empty cell placeholder
+            pass
 
         # Set cell vertical alignment
         cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
