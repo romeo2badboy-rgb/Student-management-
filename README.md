@@ -8,9 +8,9 @@ seat distribution, and professional Word and Excel reporting.
 <img src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white" />
 <img src="https://img.shields.io/badge/CustomTkinter-2B5B84?style=for-the-badge&logo=python&logoColor=white" />
 
-<img src="https://img.shields.io/github/languages/top/romeo2badboy-rgb/Student-management-?style=flat-square&color=3776AB" />
-<img src="https://img.shields.io/github/repo-size/romeo2badboy-rgb/Student-management-?style=flat-square" />
-<img src="https://img.shields.io/github/last-commit/romeo2badboy-rgb/Student-management-?style=flat-square" />
+<img src="https://img.shields.io/github/languages/top/romeo2badboy-rgb/exam-seating-system?style=flat-square&color=3776AB" />
+<img src="https://img.shields.io/github/repo-size/romeo2badboy-rgb/exam-seating-system?style=flat-square" />
+<img src="https://img.shields.io/github/last-commit/romeo2badboy-rgb/exam-seating-system?style=flat-square" />
 
 </div>
 
